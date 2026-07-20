@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Audit Site — Scoring SEO</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #1a1a1a; }
+  h1 { font-size: 24px; }
+  form { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-top: 20px; }
+  label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+  input { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+  button { background: #1d4ed8; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+</style>
+</head>
+<body>
+  <h1>Audit Site — Scoring SEO sur 100</h1>
+  <p>Basé sur la méthodologie de scoring (crawlabilité, technique, performance, on-page, mobile).</p>
+  <form action="/audit" method="post">
+    <label for="url">URL du site</label>
+    <input type="text" id="url" name="url" placeholder="https://example.com" required>
+    <label for="maxPages">Pages max à crawler</label>
+    <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
+    <button type="submit">Lancer l'audit</button>
+  </form>
+</body>
+</html>

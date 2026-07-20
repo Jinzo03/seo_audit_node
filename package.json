@@ -1,0 +1,25 @@
+{
+  "name": "seo_audit_node",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/server.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "cheerio": "^1.2.0",
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.10.1",
+    "playwright": "^1.61.1",
+    "robots-parser": "^3.0.1"
+  }
+}

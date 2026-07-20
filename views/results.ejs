@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Résultats — <%= startUrl %></title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; background: #fafafa; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-top: 0; word-break: break-all; }
+  .score-banner { display: flex; align-items: center; gap: 24px; background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 24px; margin: 20px 0; }
+  .score-number { font-size: 48px; font-weight: 800; }
+  .score-green { color: #15803d; } .score-yellow { color: #a16207; } .score-orange { color: #c2410c; } .score-red { color: #b91c1c; }
+  .tier-badge { font-size: 14px; font-weight: 600; padding: 4px 10px; border-radius: 999px; display: inline-block; }
+  .badge-green { background: #dcfce7; color: #15803d; } .badge-yellow { background: #fef9c3; color: #a16207; }
+  .badge-orange { background: #ffedd5; color: #c2410c; } .badge-red { background: #fee2e2; color: #b91c1c; }
+  .subscores { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+  .subscore-card { flex: 1; min-width: 140px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+  .subscore-card .label { font-size: 12px; color: #666; text-transform: uppercase; }
+  .subscore-card .value { font-size: 22px; font-weight: 700; }
+  .bar-track { background: #eee; border-radius: 4px; height: 6px; margin-top: 6px; overflow: hidden; }
+  .bar-fill { background: #1d4ed8; height: 100%; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; background: #fff; }
+  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+  th { background: #f1f1f1; }
+  .sev-CRITICAL { color: #b91c1c; font-weight: 700; }
+  .sev-WARNING { color: #c2410c; font-weight: 600; }
+  .sev-NOTICE { color: #666; }
+  .not-measured { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin: 16px 0; }
+  a { color: #1d4ed8; }
+</style>
+</head>
+<body>
+  <h1>Résultats d'audit</h1>
+  <p class="subtitle"><%= startUrl %> — <%= pages.length %> page(s) crawlée(s)</p>
+
+  <div class="score-banner">
+    <div class="score-number score-<%= result.tier.color %>"><%= result.final %></div>
+    <div>
+      <span class="tier-badge badge-<%= result.tier.color %>"><%= result.tier.level %></span>
+      <div style="margin-top:6px;color:#666;font-size:13px">Score sur 100, pondéré par catégorie</div>
+    </div>
+  </div>
+
+  <div class="subscores">
+    <% const labels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
+    <% for (const key of Object.keys(result.percentages)) { %>
+      <div class="subscore-card">
+        <div class="label"><%= labels[key] %></div>
+        <div class="value"><%= result.percentages[key] %>%</div>
+        <div class="bar-track"><div class="bar-fill" style="width:<%= result.percentages[key] %>%"></div></div>
+      </div>
+    <% } %>
+  </div>
+
+  <div class="not-measured">
+    <strong>Note :</strong> Performance (Core Web Vitals) et une partie de Mobile/UX ne sont pas encore mesurées
+    (nécessite Playwright — voir <code>src/performance/browserAudit.js</code>) : ces catégories affichent
+    des valeurs neutres et n'affectent pas encore le score final de façon pénalisante.
+  </div>
+
+  <h2 style="font-size:18px">Problèmes détectés (triés par impact)</h2>
+  <table>
+    <thead><tr><th>Catégorie</th><th>Sévérité</th><th>Points</th><th>Problème</th></tr></thead>
+    <tbody>
+      <% for (const issue of result.issues.slice(0, 30)) { %>
+        <tr>
+          <td><%= labels[issue.category] || issue.category %></td>
+          <td class="sev-<%= issue.severity %>"><%= issue.severity %></td>
+          <td><%= issue.points %></td>
+          <td><%= issue.text %></td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+
+  <p style="margin-top:20px"><a href="/">&larr; Nouvel audit</a></p>
+</body>
+</html>
