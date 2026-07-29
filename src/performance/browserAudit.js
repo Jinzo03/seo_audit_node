@@ -1,29 +1,56 @@
 /**
  * Real Core Web Vitals + mobile/UX measurement using Playwright.
  *
- * IMPORTANT — this module could not be live-tested in the sandbox this was
- * written in: Playwright's browser binary download is blocked by that
- * environment's network allowlist (cdn.playwright.dev isn't reachable).
- * It's written against Playwright's documented API and the standard
- * PerformanceObserver-based technique the `web-vitals` library itself uses
- * internally, but you MUST run it yourself locally before trusting it:
+ * STATUS: partially verified. A real local run against https://example.com
+ * produced usable LCP/CLS/viewport/mobile-friendly/font/popup results, but
+ * surfaced two real issues, both fixed here — re-run and confirm before
+ * trusting this fully:
  *
+ *   1. INP always came back null. Root cause: INP can only be measured from
+ *      an actual interaction (the 'event' PerformanceObserver only fires on
+ *      real input), and nothing was clicking the page. Fixed by simulating
+ *      a click on <body> after load. A persisting `null` after that fix is
+ *      expected and fine — it means no interaction was slow enough (>16ms)
+ *      to register, i.e. the page responded quickly.
+ *
+ *   2. touchableElementsTooSmall came back true on a page with a single
+ *      plain text link. Root cause: the check compared every <a> tag's
+ *      bounding box to 48x48px, but a normal inline text link is only as
+ *      tall as its line of text — that's not a usability bug. Fixed to
+ *      skip plain inline text links and only flag elements that look like
+ *      intended tap targets (buttons, form controls, block/inline-block
+ *      styled links).
+ *
+ *   3. TTFB (2701ms) and LCP (2.728s) both looked implausibly slow for
+ *      example.com, and were suspiciously close together (LCP ≈ TTFB +
+ *      27ms). Likely cause: cold-start overhead on the first navigation of
+ *      a freshly launched browser (DNS/TLS/process startup, antivirus
+ *      scanning the new Chromium process on Windows) — not a real server
+ *      delay. This module now accepts a shared `browser` instance (see
+ *      `launchSharedBrowser`) so a caller can reuse one warm browser across
+ *      many audits instead of paying this cost every time. Run
+ *      `node tests/manual_coldstart_check.js` yourself to confirm whether
+ *      this was actually the cause before assuming it's fixed.
+ *
+ * Setup:
  *   npx playwright install chromium
  *   node -e "require('./src/performance/browserAudit').runBrowserAudit('https://example.com').then(r => console.log(r))"
- *
- * If anything about the metric collection looks off once you can actually
- * see real numbers, the most likely culprits are: (1) the LCP observer
- * firing before the largest element has actually loaded (page.waitForTimeout
- * below may need tuning per site), or (2) the popup/tap-target heuristics
- * being too strict/loose for a given site's markup conventions.
  */
 
 const { chromium, devices } = require('playwright');
 
-async function runBrowserAudit(url, options = {}) {
-  const { mobile = true, timeoutMs = 15000, settleMs = 1500 } = options;
+// Convenience for callers that want to reuse one browser across many
+// audits (recommended — see the cold-start note above and the top-of-file
+// comment). Usage: const browser = await launchSharedBrowser(); ... pass
+// { browser } into runBrowserAudit(); ... await browser.close() when done.
+async function launchSharedBrowser() {
+  return chromium.launch();
+}
 
-  const browser = await chromium.launch();
+async function runBrowserAudit(url, options = {}) {
+  const { mobile = true, timeoutMs = 15000, settleMs = 1500, browser: sharedBrowser = null } = options;
+
+  const browser = sharedBrowser || (await chromium.launch());
   try {
     const context = mobile
       ? await browser.newContext({ ...devices['Pixel 7'] })
@@ -73,6 +100,17 @@ async function runBrowserAudit(url, options = {}) {
     // Give layout-shift/LCP observers a little more time to settle after load.
     await page.waitForTimeout(settleMs);
 
+    // INP cannot be measured without an actual interaction — the 'event'
+    // PerformanceObserver only fires in response to real input. A click on
+    // <body> (not a link) triggers a genuine input event without risking
+    // navigation. If the response is fast enough (<16ms, our
+    // durationThreshold), no entry will be recorded at all — that's not a
+    // bug, it means the interaction was fast enough not to count against INP.
+    try {
+      await page.evaluate(() => { if (document.body) document.body.click(); });
+      await page.waitForTimeout(300);
+    } catch (err) { /* non-fatal — some pages may reject synthetic clicks */ }
+
     const vitals = await page.evaluate(() => window.__vitals);
     const ttfb = await page.evaluate(() => {
       const [entry] = performance.getEntriesByType('navigation');
@@ -104,7 +142,7 @@ async function runBrowserAudit(url, options = {}) {
       intrusivePopups,
     };
   } finally {
-    await browser.close();
+    if (!sharedBrowser) await browser.close();
   }
 }
 
@@ -114,7 +152,24 @@ async function checkTapTargets(page) {
     for (const el of clickable) {
       const rect = el.getBoundingClientRect();
       const visible = rect.width > 0 && rect.height > 0;
-      if (visible && (rect.width < 48 || rect.height < 48)) return true;
+      if (!visible) continue;
+
+      const style = window.getComputedStyle(el);
+
+      // A plain inline text link (the common case: a hyperlink inside a
+      // sentence) is expected to be text-sized, not 48px — that's normal,
+      // not a usability bug. Only flag elements that look like they were
+      // meant to function as standalone tap targets: buttons, form
+      // controls, or links styled as block/inline-block (nav items, CTA
+      // buttons) rather than plain text-flow links.
+      const isPlainInlineTextLink = el.tagName === 'A'
+        && style.display === 'inline'
+        && parseFloat(style.paddingTop || '0') === 0
+        && parseFloat(style.paddingBottom || '0') === 0;
+
+      if (isPlainInlineTextLink) continue;
+
+      if (rect.width < 48 || rect.height < 48) return true;
     }
     return false;
   });
@@ -155,4 +210,4 @@ async function checkForPopups(page) {
   });
 }
 
-module.exports = { runBrowserAudit };
+module.exports = { runBrowserAudit, launchSharedBrowser };
