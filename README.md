@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-92 tests (crawler + scoring + crawl-to-score aggregation), no live network
+122 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects), no live network
 calls — all HTTP responses are mocked. Two real bugs were caught and fixed
 by this suite during development (see below).
 
@@ -38,7 +38,7 @@ src/
   server.js             Express app tying it together
 views/                  server-rendered EJS templates (functional, not the
                          final gauge dashboard — that's Week 4)
-tests/                  92 tests across 14 suites
+tests/                  122 tests across 18 suites
 ```
 
 ## Findings worth knowing about
@@ -85,45 +85,77 @@ presence instead of truthiness. See `sitemap.js`.
 
 ## What's real vs. placeholder right now
 
-Live-tested end-to-end against real sites (pypi.org): crawling, sitemap
-checking, on-page scoring, crawlability scoring, technical scoring (404/5xx
-counts). A real audit of pypi.org currently scores **92.6/100 (Excellent)**,
-correctly flagging that 91% of its images are missing alt text as the
-single biggest issue.
+Live-tested end-to-end against real sites (pypi.org, github.com): crawling,
+sitemap checking, on-page scoring, crawlability scoring, and now the full
+Technical category — 404/5xx counts, redirect chain/loop tracking, SSL
+certificate validity (via a real TLS handshake, confirmed against
+github.com and pypi.org with real certificate expiry dates), HSTS and
+security header detection, and mixed-content detection. A real audit of
+pypi.org currently scores **92.6/100 (Excellent)**, correctly flagging that
+91% of its images are missing alt text as the single biggest issue and a
+clean Technical category (valid SSL, no redirect problems found in the
+crawled pages).
 
 **Not yet measured** (scored as neutral placeholders, not penalties, so the
-overall score isn't unfairly tanked by missing data collection): redirect
-chains/loops, mixed content, SSL certificate validity, HSTS/security
-headers, all of Performance (Core Web Vitals, TTFB, compression, caching),
-and most of Mobile/UX beyond the viewport tag. Full list in
-`buildAuditData.js`'s `NOT_YET_MEASURED`.
+overall score isn't unfairly tanked by missing data collection): all of
+Performance (Core Web Vitals, TTFB, compression, caching) and most of
+Mobile/UX beyond the viewport tag — both waiting on Week 3's Playwright
+integration. Full list in `buildAuditData.js`'s `NOT_YET_MEASURED`.
 
-**`browserAudit.js` (Playwright) could not be live-tested in the sandbox
-this was built in** — its browser binary download is blocked by that
-environment's network allowlist. It's written against Playwright's
-documented API and the same technique the `web-vitals` library uses
-internally (`PerformanceObserver` for LCP/CLS/INP), but you need to verify
-it yourself before trusting it:
-```bash
-npx playwright install chromium
-node -e "require('./src/performance/browserAudit').runBrowserAudit('https://example.com').then(r => console.log(r))"
-```
+**A real bug was caught wiring in the Week 2 checks**: `buildTechnicalData`
+used a different "is this an HTML page" test (`hstsPresent !== undefined`)
+than the rest of the module (`title !== undefined`), which happened to work
+by coincidence until a test fixture exposed the mismatch — 404/500 pages
+without a `title` field were silently excluded as expected, but so was the
+one real HTML page in a small test site, because it hadn't been given an
+`hstsPresent` value either, leaving `buildTechnicalData` unable to find a
+homepage to check headers on and defaulting to "HSTS missing." Fixed by
+using the same criterion (and the same already-computed `htmlPages` list)
+everywhere in the module instead of quietly introducing a second one.
 
-## Proposed 5-week roadmap (1 week already spent on scoping/foundation)
+**`browserAudit.js` (Playwright) has now been verified against a real
+site**, including the cold-start question. INP fix confirmed (null now
+correctly means "no slow interaction," not "never measured"). Tap-target
+fix confirmed (stopped flagging a plain text link). And the TTFB/LCP
+cold-start theory was directly confirmed: a second run against the same
+URL came back ~93% faster (2701ms → 195ms TTFB), with the LCP-minus-TTFB
+gap staying ~26ms both times — meaning the page itself rendered identically
+both times, and the entire swing was in connection/startup time, not
+rendering. Likely a one-time cost tied to the first-ever launch of a newly
+installed Chromium binary rather than a per-launch tax. `example.com` is a
+very simple page, though — still worth testing the mobile/UX heuristics
+against a page with more varied real content before Week 3 wraps up.
 
-**Week 2 — Technical category + real redirect/SSL/header checks**
-- Redirect chain tracking (httpx/fetch response history) and loop detection
-- SSL certificate validity via Node's `tls` module
-- HSTS + security header checks (trivial — just read response headers)
-- Mixed-content detection (scan HTTPS pages for HTTP sub-resources)
-- Wire real values into `buildTechnicalData` in place of the current
-  placeholders
+## Proposed 5-week roadmap (2 weeks now complete)
+
+**Week 1 (done) — Scoping and foundation.** Stack decision, crawler ported
+and tested, scoring engine implemented in full from the spec, crawl-to-score
+mapping layer, working Express app.
+
+**Week 2 (done) — Technical category completion.**
+- Redirect chain tracking and loop detection — switched `fetchOne` from
+  auto-following redirects to manually walking the chain (`redirect:
+  'manual'`), so hop count and loops are now visible instead of silently
+  disappearing into a single follow-redirect call. Verified live: `http://
+  github.com` correctly reports 1 hop to HTTPS.
+- SSL certificate validity via Node's `tls` module — a raw TLS handshake
+  (no HTTP request) reads the actual certificate dates and trust-chain
+  status. Verified live against github.com and pypi.org (both valid, with
+  real expiry dates: 29 and 12 days out respectively at time of testing).
+- HSTS + security header checks — free, just reads headers already present
+  on every fetch.
+- Mixed-content detection — free, scans HTML already parsed by Cheerio.
+- All wired into `buildTechnicalData` in place of the Week 1 placeholders,
+  with 30 new tests (mocked for chains/loops/headers, monkey-patched
+  `tls.connect` for certificate scenarios that would otherwise need a real
+  bad-certificate server to test).
 
 **Week 3 — Performance & Mobile via Playwright**
-- Verify `browserAudit.js` locally, fix whatever the real browser reveals
-  (this file is unverified — budget real debugging time here)
+- `browserAudit.js` itself is verified; what's still needed is testing it
+  against a page with more real content (multiple images, varied button
+  sizes, an actual popup) before trusting it broadly
 - Decide sampling strategy: running a full browser pass on every crawled
-  page is slow: likely sample N pages (e.g. homepage + 4-5 representative
+  page is slow — likely sample N pages (e.g. homepage + 4-5 representative
   pages) rather than every page, like real audit tools do
 - Wire results into `buildAuditData` in place of current placeholders
 
