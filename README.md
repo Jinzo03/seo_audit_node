@@ -16,25 +16,35 @@ Open http://localhost:3000, enter a URL, run an audit.
 npm test
 ```
 122 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects), no live network
-calls — all HTTP responses are mocked. Two real bugs were caught and fixed
-by this suite during development (see below).
+calls — all HTTP responses are mocked. Several real bugs have been caught
+and fixed by this suite during development (see below).
 
 ## Architecture
 ```
 src/
   crawler/
-    normalizeLink.js   pure URL resolution — no I/O
-    extract.js         one function per data point (title, H1, images, ...)
-    robots.js           robots.txt fetch + matching
+    normalizeLink.js     pure URL resolution — no I/O
+    extract.js           one function per data point (title, H1, images, ...)
+    robots.js            robots.txt fetch + matching
     sitemap.js           sitemap XML parsing (flat + sitemap index)
-    crawler.js          orchestrates the above; the only layer touching HTTP
+    securityHeaders.js   HSTS + security header detection (reads headers
+                          already present on every fetch — no new requests)
+    mixedContent.js      HTTPS-page-loading-HTTP-resources detection (reads
+                          already-parsed HTML — no new requests)
+    tlsCheck.js          SSL certificate validity via a raw TLS handshake
+                          (Node's tls module — the only one of these four
+                          that makes its own network connection)
+    crawler.js           orchestrates all of the above; the only layer
+                          driving the actual crawl
   scoring/
     auditScoring.js     the cahier de charge's scoring rules, fully implemented
     buildAuditData.js   maps crawl output -> AuditScoring input, produces one
                          whole-site score
   performance/
     browserAudit.js     Playwright: real Core Web Vitals + mobile/UX checks
-                         (NOT YET LIVE-TESTED — see below)
+                         (verified against a live site — see Section on
+                         findings below; still worth testing against a page
+                         with more varied content before trusting broadly)
   server.js             Express app tying it together
 views/                  server-rendered EJS templates (functional, not the
                          final gauge dashboard — that's Week 4)
@@ -170,12 +180,15 @@ mapping layer, working Express app.
 - PDF/exportable report generation
 - Handle edge cases: JS-rendered sites (SPA detection), very large sites,
   crawl timeouts
-- Write up the two documentation findings above as a short note for the
+- Write up the retired-tooling and spec-ambiguity findings from the
+  "Findings worth knowing about" section above as a short note for the
   encadrant
 - Buffer for whatever Week 3's Playwright debugging actually turns up
 
 ## Easy wins if time is short
-- Redirect/SSL/header checks (Week 2 list) are all cheap — no browser
-  needed, just reading response metadata already available from `fetch`.
-- The frontend gauge can be built against the data that already exists
-  today (`result.final`, `result.percentages`) without waiting for Week 2/3.
+- The frontend gauge/dashboard (Week 4) can be built against data that
+  already exists today (`result.final`, `result.percentages`,
+  `result.issues`) without waiting on Week 3's Playwright work — backend
+  and frontend can proceed in parallel if needed.
+- Persisting audit runs to `better-sqlite3` (already installed, unused so
+  far) unlocks the historical-trend feature and is independent of Week 3.

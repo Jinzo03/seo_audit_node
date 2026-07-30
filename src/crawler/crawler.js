@@ -2,6 +2,9 @@ const cheerio = require('cheerio');
 const extract = require('./extract');
 const { fetchRobots, isAllowed } = require('./robots');
 const { parseSitemapXml } = require('./sitemap');
+const { hasHsts, hasAnySecurityHeader } = require('./securityHeaders');
+const { detectMixedContent } = require('./mixedContent');
+const { checkCertificate } = require('./tlsCheck');
 
 const USER_AGENT = 'SimpleSEOAuditBot/1.0 (+internship project)'; // sent in HTTP headers
 const ROBOTS_TOKEN = 'SimpleSEOAuditBot'; // bare name for robots.txt matching
@@ -13,6 +16,7 @@ class Crawler {
       concurrency = 5,
       timeoutMs = 10000,
       delayMs = 0,
+      maxRedirects = 10,
     } = options;
 
     this.startUrl = startUrl.replace(/\/$/, '');
@@ -24,6 +28,7 @@ class Crawler {
     this.concurrency = concurrency;
     this.timeoutMs = timeoutMs;
     this.delayMs = delayMs;
+    this.maxRedirects = maxRedirects;
 
     this.visited = new Set();
     this.queue = [];
@@ -74,19 +79,65 @@ class Crawler {
 
   // ------------------------------------------------------------------
   // Fetching (rate limiting lives here — delay applied after each
-  // request
+  // request, mirroring the concurrency-slot-release timing used in the
+  // Python version)
   // ------------------------------------------------------------------
 
+  // Redirects are followed manually (redirect: 'manual') instead of letting
+  // fetch auto-follow them, specifically so we can count hops and detect
+  // loops — auto-follow only ever hands back the final response, with no
+  // visibility into how it got there.
   async fetchOne(url) {
     const start = Date.now();
     let resp = null;
     let error = null;
+    let hops = 0;
+    let loopDetected = false;
+    let currentUrl = url;
+    const visitedInChain = new Set([url]);
+
     try {
-      resp = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const r = await fetch(currentUrl, {
+          headers: { 'User-Agent': USER_AGENT },
+          redirect: 'manual',
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+
+        const isRedirect = r.status >= 300 && r.status < 400;
+        const location = isRedirect && r.headers && typeof r.headers.get === 'function'
+          ? r.headers.get('location')
+          : null;
+
+        if (!location) {
+          resp = r; // final, non-redirect response (or a redirect with no Location — treat as final)
+          break;
+        }
+
+        let nextUrl;
+        try {
+          nextUrl = new URL(location, currentUrl).toString();
+        } catch (err) {
+          resp = r; // malformed Location header — stop here rather than crash
+          break;
+        }
+
+        hops += 1;
+
+        if (visitedInChain.has(nextUrl)) {
+          loopDetected = true;
+          resp = r;
+          break;
+        }
+        if (hops >= this.maxRedirects) {
+          resp = r; // safety cap — too many hops, stop following
+          break;
+        }
+
+        visitedInChain.add(nextUrl);
+        currentUrl = nextUrl;
+      }
     } catch (err) {
       error = err.message;
     }
@@ -96,11 +147,12 @@ class Crawler {
       await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     }
 
-    return { resp, elapsedMs, error };
+    return { resp, elapsedMs, error, redirectHops: hops, redirectLoopDetected: loopDetected };
   }
 
   // Runs fetchOne over a list of URLs, capping concurrency by chunking
   // instead of running everything at once — equivalent in effect to the
+  // Python version's asyncio.Semaphore.
   async fetchWithConcurrencyCap(urls) {
     const outputs = [];
     for (let i = 0; i < urls.length; i += this.concurrency) {
@@ -128,6 +180,9 @@ class Crawler {
     if (!resp || !contentType.includes('text/html')) {
       return data;
     }
+
+    data.hstsPresent = hasHsts(resp.headers);
+    data.securityHeadersPresent = hasAnySecurityHeader(resp.headers);
 
     const html = await resp.text();
     return this.extractPageData(data, html, url);
@@ -162,6 +217,7 @@ class Crawler {
 
     data.structuredDataRaw = extract.extractStructuredData($);
     data.isHttps = url.startsWith('https://');
+    data.mixedContent = detectMixedContent($, url);
 
     const links = extract.extractLinks($, url);
     data.linksFound = links;
@@ -187,8 +243,10 @@ class Crawler {
 
       for (let i = 0; i < batch.length; i += 1) {
         const url = batch[i];
-        const { resp, elapsedMs, error } = fetched[i];
+        const { resp, elapsedMs, error, redirectHops, redirectLoopDetected } = fetched[i];
         const pageData = await this.processPage(url, resp, elapsedMs, error);
+        pageData.redirectHops = redirectHops;
+        pageData.redirectLoopDetected = redirectLoopDetected;
         this.results.push(pageData);
         this.discoverLinks(pageData, resp);
       }
@@ -298,6 +356,19 @@ class Crawler {
     }
 
     return result;
+  }
+
+  // ------------------------------------------------------------------
+  // SSL certificate check (site-level — a certificate covers the whole
+  // domain, so this runs once, not per crawled page)
+  // ------------------------------------------------------------------
+
+  async checkSsl() {
+    if (this.scheme !== 'https') {
+      return { checked: false, valid: false, reason: 'Site is not served over HTTPS' };
+    }
+    const hostname = this.domain.split(':')[0]; // strip a port if present
+    return checkCertificate(hostname, { timeoutMs: this.timeoutMs });
   }
 }
 
