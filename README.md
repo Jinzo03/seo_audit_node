@@ -15,9 +15,15 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-122 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects), no live network
+136 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
+
+Known flakiness: a couple of the rate-limiting tests assert on real
+elapsed wall-clock time (e.g. "delay is applied" checks that `elapsed >=
+50ms`), so under system load they can occasionally fail a single run even
+though nothing is actually broken — re-running `npm test` resolves it. Not
+urgent, but worth knowing about so it's not a mystery if it recurs.
 
 ## Architecture
 ```
@@ -41,14 +47,17 @@ src/
     buildAuditData.js   maps crawl output -> AuditScoring input, produces one
                          whole-site score
   performance/
-    browserAudit.js     Playwright: real Core Web Vitals + mobile/UX checks
-                         (verified against a live site — see Section on
-                         findings below; still worth testing against a page
-                         with more varied content before trusting broadly)
-  server.js             Express app tying it together
+    selectSample.js      picks a representative subset of crawled pages for
+                          the (expensive) browser audit instead of running
+                          it on every page
+    browserAudit.js      Playwright: real Core Web Vitals + mobile/UX checks
+                          for one page — verified against a live site
+  server.js             Express app; runs the sampled browser audit with a
+                         graceful fallback if Playwright/Chromium isn't
+                         available in a given environment (see below)
 views/                  server-rendered EJS templates (functional, not the
                          final gauge dashboard — that's Week 4)
-tests/                  122 tests across 18 suites
+tests/                  136 tests across 20 suites
 ```
 
 ## Findings worth knowing about
@@ -107,10 +116,12 @@ clean Technical category (valid SSL, no redirect problems found in the
 crawled pages).
 
 **Not yet measured** (scored as neutral placeholders, not penalties, so the
-overall score isn't unfairly tanked by missing data collection): all of
-Performance (Core Web Vitals, TTFB, compression, caching) and most of
-Mobile/UX beyond the viewport tag — both waiting on Week 3's Playwright
-integration. Full list in `buildAuditData.js`'s `NOT_YET_MEASURED`.
+overall score isn't unfairly tanked by missing data collection): image
+optimization, gzip compression, and browser-cache headers under
+Performance — `browserAudit.js` doesn't check these yet. Everything else
+Performance/Mobile-related is now wired to real Playwright data *when a
+browser is available* (see below for what happens when it isn't). Full,
+run-specific list in `scoreSite`'s returned `notYetMeasured` field.
 
 **A real bug was caught wiring in the Week 2 checks**: `buildTechnicalData`
 used a different "is this an HTML page" test (`hstsPresent !== undefined`)
@@ -132,11 +143,33 @@ URL came back ~93% faster (2701ms → 195ms TTFB), with the LCP-minus-TTFB
 gap staying ~26ms both times — meaning the page itself rendered identically
 both times, and the entire swing was in connection/startup time, not
 rendering. Likely a one-time cost tied to the first-ever launch of a newly
-installed Chromium binary rather than a per-launch tax. `example.com` is a
-very simple page, though — still worth testing the mobile/UX heuristics
-against a page with more varied real content before Week 3 wraps up.
+installed Chromium binary rather than a per-launch tax.
 
-## Proposed 5-week roadmap (2 weeks now complete)
+**Week 3 is now wired end to end**: `selectPagesForBrowserAudit` picks a
+representative sample (always the homepage, plus up to 4 more pages spread
+evenly across crawl order rather than just the first few, since a
+breadth-first crawl tends to visit structurally similar pages first),
+`server.js` runs `browserAudit.js` against that sample with one shared
+browser instance, and the results feed into `scoreSite` — Performance is
+averaged only across sampled pages (there's no meaningful fallback score
+without browser data), while Mobile blends browser data for sampled pages
+with the existing static viewport check for the rest. If Playwright or its
+Chromium binary isn't available in a given environment, `server.js` catches
+that at launch time, logs a warning, and the audit still completes using
+the Week 1/2 behavior for Performance/Mobile — verified directly in the
+sandbox this was built in, where Chromium genuinely isn't installed, so
+this fallback path is exercised for real, not just written defensively and
+hoped for. The results page's "not yet measured" note is now conditional
+on whether a browser actually ran for that specific audit, instead of
+always showing a static "not measured" message.
+
+**Still worth doing before trusting `browserAudit.js` broadly**: it's only
+been tested against `example.com`, a very simple page. Testing the
+mobile/UX heuristics (tap targets, popups, font size) against a page with
+more varied real content is the natural next step, though it's no longer
+blocking — the module is wired into the live audit flow now.
+
+## Proposed 5-week roadmap (3 weeks now complete)
 
 **Week 1 (done) — Scoping and foundation.** Stack decision, crawler ported
 and tested, scoring engine implemented in full from the spec, crawl-to-score
@@ -160,14 +193,27 @@ mapping layer, working Express app.
   `tls.connect` for certificate scenarios that would otherwise need a real
   bad-certificate server to test).
 
-**Week 3 — Performance & Mobile via Playwright**
-- `browserAudit.js` itself is verified; what's still needed is testing it
-  against a page with more real content (multiple images, varied button
-  sizes, an actual popup) before trusting it broadly
-- Decide sampling strategy: running a full browser pass on every crawled
-  page is slow — likely sample N pages (e.g. homepage + 4-5 representative
-  pages) rather than every page, like real audit tools do
-- Wire results into `buildAuditData` in place of current placeholders
+**Week 3 (done) — Performance & Mobile via Playwright.**
+- `browserAudit.js` verified against a live site, including confirming the
+  cold-start theory and fixing the INP and tap-target bugs it surfaced (see
+  above)
+- Sampling strategy implemented (`selectSample.js`): homepage + up to 4
+  more pages spread evenly across crawl order, not just the first few
+- Wired into `server.js` with one shared browser instance per audit
+  (cheaper than launching one per sampled page) and a defensive fallback if
+  Playwright/Chromium isn't installed — exercised for real in the sandbox
+  this was built in, since Chromium genuinely isn't available there
+- Wired into `buildAuditData.js`: Performance now averages real per-page
+  browser data across sampled pages; Mobile blends browser data for
+  sampled pages with the existing static viewport check for the rest
+- 14 new tests (8 for sampling logic, 6 for the scoring aggregation with
+  synthetic browser results)
+
+**Still open before trusting `browserAudit.js` broadly**: it's only been
+tested against `example.com`, a very simple page — testing the mobile/UX
+heuristics against a page with more varied real content (multiple images,
+varied button sizes, an actual popup) is worth doing, though it no longer
+blocks anything since the module is wired into the live flow already.
 
 **Week 4 — Frontend / dashboard**
 - Circular score gauge with dynamic color + load animation (SVG or Canvas)
@@ -183,12 +229,13 @@ mapping layer, working Express app.
 - Write up the retired-tooling and spec-ambiguity findings from the
   "Findings worth knowing about" section above as a short note for the
   encadrant
-- Buffer for whatever Week 3's Playwright debugging actually turns up
+- Buffer for whatever testing `browserAudit.js` against more varied real
+  sites turns up (see the open item at the end of Week 3 above)
 
 ## Easy wins if time is short
 - The frontend gauge/dashboard (Week 4) can be built against data that
   already exists today (`result.final`, `result.percentages`,
-  `result.issues`) without waiting on Week 3's Playwright work — backend
-  and frontend can proceed in parallel if needed.
+  `result.issues`) — nothing left to wait on from earlier weeks.
 - Persisting audit runs to `better-sqlite3` (already installed, unused so
-  far) unlocks the historical-trend feature and is independent of Week 3.
+  far) unlocks the historical-trend feature and can be built independently
+  of the Week 4 gauge work.

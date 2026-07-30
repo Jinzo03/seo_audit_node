@@ -27,29 +27,31 @@
 
 const { AuditScoring, WEIGHTS } = require('./auditScoring');
 
-const NOT_YET_MEASURED = [
+const ALWAYS_NOT_YET_MEASURED = [
   'robotsTxtOversized',
   'blockedCriticalResources',
   'hreflangMisconfigured',
-  'redirectChainsCount',
-  'redirectLoopsDetected',
-  'mixedContent',
-  'sslInvalid',
-  'hstsPresent',
-  'securityHeadersPresent',
+  'imagesUnoptimized', // not covered by browserAudit.js yet, even when browser results exist
+  'gzipEnabled',
+  'browserCacheEnabled',
+];
+
+const BROWSER_ONLY_FIELDS = [
   'lcp',
   'inp',
   'cls',
   'ttfb',
-  'imagesUnoptimized',
-  'gzipEnabled',
-  'browserCacheEnabled',
   'mobileFriendly',
   'touchableElementsTooSmall',
   'fontTooSmall',
   'lineHeightTooTight',
   'intrusivePopups',
 ];
+
+// Kept for backward-compat / as a default reference — reflects the "no
+// browser results at all" case. scoreSite() computes the accurate,
+// run-specific list based on whether browserResults was actually supplied.
+const NOT_YET_MEASURED = [...ALWAYS_NOT_YET_MEASURED, ...BROWSER_ONLY_FIELDS];
 
 function countOccurrences(values) {
   const counts = new Map();
@@ -88,19 +90,35 @@ function buildCrawlabilityData(pages, sitemapResult, robots, startUrl) {
   };
 }
 
-function buildTechnicalData(pages) {
+function buildTechnicalData(pages, sslResult, htmlPages) {
+  // HSTS / security headers are server-level configuration (set once via
+  // the web server / CDN / reverse proxy) and apply uniformly across a
+  // site, so they're read from the homepage's response rather than
+  // re-checked on every page — cheaper and just as accurate in practice.
+  const homepage = (htmlPages || pages.filter((p) => p.title !== undefined))[0];
+  const hstsPresent = homepage ? Boolean(homepage.hstsPresent) : false;
+  const securityHeadersPresent = homepage ? Boolean(homepage.securityHeadersPresent) : false;
+
+  const redirectChainsCount = pages.filter((p) => (p.redirectHops || 0) > 1).length;
+  const redirectLoopsDetected = pages.some((p) => p.redirectLoopDetected);
+  const mixedContent = pages.some((p) => p.mixedContent);
+
+  // sslResult is undefined if checkSsl() wasn't run at all (not the same
+  // as "checked and found invalid") — don't penalize for data we never
+  // collected. sslResult.checked is false if the handshake itself failed
+  // (e.g. timeout) — also not penalized, since that's a measurement gap,
+  // not confirmed evidence of an invalid certificate.
+  const sslInvalid = sslResult && sslResult.checked ? !sslResult.valid : false;
+
   return {
     errors404Count: pages.filter((p) => p.statusCode === 404).length,
     errors5xxCount: pages.filter((p) => p.statusCode && p.statusCode >= 500).length,
-    // Placeholder "clean" values for checks we don't measure yet. Using
-    // true/false (not undefined) because scoreTechnical uses `if (!d.x)`
-    // for these, which would otherwise treat "not measured" as "missing".
-    hstsPresent: true,
-    securityHeadersPresent: true,
-    redirectChainsCount: 0,
-    redirectLoopsDetected: false,
-    mixedContent: false,
-    sslInvalid: false,
+    hstsPresent,
+    securityHeadersPresent,
+    redirectChainsCount,
+    redirectLoopsDetected,
+    mixedContent,
+    sslInvalid,
   };
 }
 
@@ -147,14 +165,45 @@ function buildOnPageDataForPage(page, titleCounts, descriptionCounts) {
   };
 }
 
-function buildMobileDataForPage(page) {
-  return {
+function buildMobileDataForPage(page, browserResult) {
+  const base = {
     viewportPresent: Boolean(page.hasViewport),
     mobileFriendly: undefined,
     touchableElementsTooSmall: undefined,
     fontTooSmall: undefined,
     lineHeightTooTight: undefined,
     intrusivePopups: undefined,
+  };
+
+  if (!browserResult) return base;
+
+  return {
+    ...base,
+    // The browser's live viewport reading is more authoritative than the
+    // static HTML check when both are available, but fall back gracefully
+    // if the browser result didn't capture it for some reason.
+    viewportPresent: browserResult.viewportPresent !== undefined
+      ? browserResult.viewportPresent
+      : base.viewportPresent,
+    mobileFriendly: browserResult.mobileFriendly,
+    touchableElementsTooSmall: browserResult.touchableElementsTooSmall,
+    fontTooSmall: browserResult.fontTooSmall,
+    lineHeightTooTight: browserResult.lineHeightTooTight,
+    intrusivePopups: browserResult.intrusivePopups,
+  };
+}
+
+function buildPerformanceDataForPage(browserResult) {
+  return {
+    lcp: browserResult.lcp !== null && browserResult.lcp !== undefined ? browserResult.lcp : undefined,
+    inp: browserResult.inp !== null && browserResult.inp !== undefined ? browserResult.inp : undefined,
+    cls: browserResult.cls !== null && browserResult.cls !== undefined ? browserResult.cls : undefined,
+    ttfb: browserResult.ttfb !== null && browserResult.ttfb !== undefined ? browserResult.ttfb : undefined,
+    // Not measured by browserAudit.js yet, even when a browser result
+    // exists for this page — default to non-penalizing values.
+    imagesUnoptimized: undefined,
+    gzipEnabled: true,
+    browserCacheEnabled: true,
   };
 }
 
@@ -168,14 +217,21 @@ function average(numbers) {
  * `pages` and `sitemapResult` come straight from Crawler#crawl() /
  * Crawler#checkSitemap(); `robots` is crawler.robots after ensureRobotsLoaded.
  */
-function scoreSite({ pages, sitemapResult, robots, startUrl, duplicateContentPageCount = 0 }) {
+function scoreSite({
+  pages, sitemapResult, robots, startUrl, sslResult, browserResults, duplicateContentPageCount = 0,
+}) {
   const htmlPages = pages.filter((p) => p.title !== undefined);
 
   const titleCounts = countOccurrences(htmlPages.map((p) => p.title).filter(Boolean));
   const descriptionCounts = countOccurrences(htmlPages.map((p) => p.metaDescription).filter(Boolean));
 
   const crawlabilityData = buildCrawlabilityData(pages, sitemapResult, robots, startUrl);
-  const technicalData = buildTechnicalData(pages);
+  const technicalData = buildTechnicalData(pages, sslResult, htmlPages);
+
+  // Accept either a Map or a plain { url: result } object, keyed by page URL.
+  const browserResultsMap = browserResults instanceof Map
+    ? browserResults
+    : new Map(Object.entries(browserResults || {}));
 
   const onPageScores = htmlPages.map((p) => {
     const data = buildOnPageDataForPage(p, titleCounts, descriptionCounts);
@@ -185,7 +241,23 @@ function scoreSite({ pages, sitemapResult, robots, startUrl, duplicateContentPag
     return new AuditScoring(data).scoreOnPage();
   });
 
-  const mobileScores = htmlPages.map((p) => new AuditScoring(buildMobileDataForPage(p)).scoreMobile());
+  // Mobile is averaged across ALL crawled pages, same as before — pages
+  // without a browser result just fall back to the static viewport check
+  // (buildMobileDataForPage handles this), so adding browser sampling
+  // doesn't change scoring for pages outside the sample, it only adds
+  // more signal for the pages that were sampled.
+  const mobileScores = htmlPages.map((p) => {
+    const browserResult = browserResultsMap.get(p.url);
+    return new AuditScoring(buildMobileDataForPage(p, browserResult)).scoreMobile();
+  });
+
+  // Performance, unlike Mobile, has NO cheap fallback — there's no
+  // meaningful "performance score" without browser data, so it's averaged
+  // only over pages that were actually sampled, not all crawled pages.
+  const performanceScores = htmlPages
+    .map((p) => browserResultsMap.get(p.url))
+    .filter(Boolean)
+    .map((browserResult) => new AuditScoring(buildPerformanceDataForPage(browserResult)).scorePerformance());
 
   const crawlability = new AuditScoring(crawlabilityData).scoreCrawlability();
   const technical = new AuditScoring(technicalData).scoreTechnical();
@@ -200,10 +272,13 @@ function scoreSite({ pages, sitemapResult, robots, startUrl, duplicateContentPag
     max: 10,
     issues: mobileScores.flatMap((r) => r.issues).slice(0, 10),
   };
-
-  // No per-page browser data yet — neutral placeholder until
-  // src/performance/browserAudit.js (Playwright) is wired in and verified.
-  const performance = { points: 20, max: 20, issues: [] };
+  const performance = performanceScores.length
+    ? {
+      points: Math.round(average(performanceScores.map((r) => r.points)) * 10) / 10,
+      max: 20,
+      issues: performanceScores.flatMap((r) => r.issues).slice(0, 10),
+    }
+    : { points: 20, max: 20, issues: [] }; // no browser data at all — neutral placeholder
 
   const categories = { crawlability, technical, performance, onPage, mobile };
 
@@ -228,7 +303,9 @@ function scoreSite({ pages, sitemapResult, robots, startUrl, duplicateContentPag
     categories,
     percentages,
     issues: allIssues,
-    notYetMeasured: NOT_YET_MEASURED,
+    notYetMeasured: performanceScores.length > 0
+      ? ALWAYS_NOT_YET_MEASURED
+      : [...ALWAYS_NOT_YET_MEASURED, ...BROWSER_ONLY_FIELDS],
   };
 }
 
@@ -238,5 +315,6 @@ module.exports = {
   buildTechnicalData,
   buildOnPageDataForPage,
   buildMobileDataForPage,
+  buildPerformanceDataForPage,
   NOT_YET_MEASURED,
 };

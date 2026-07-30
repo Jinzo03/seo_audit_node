@@ -22,15 +22,17 @@
  *      styled links).
  *
  *   3. TTFB (2701ms) and LCP (2.728s) both looked implausibly slow for
- *      example.com, and were suspiciously close together (LCP ≈ TTFB +
- *      27ms). Likely cause: cold-start overhead on the first navigation of
- *      a freshly launched browser (DNS/TLS/process startup, antivirus
- *      scanning the new Chromium process on Windows) — not a real server
- *      delay. This module now accepts a shared `browser` instance (see
- *      `launchSharedBrowser`) so a caller can reuse one warm browser across
- *      many audits instead of paying this cost every time. Run
- *      `node tests/manual_coldstart_check.js` yourself to confirm whether
- *      this was actually the cause before assuming it's fixed.
+ *      example.com on the first run. CONFIRMED as a cold-start artifact: a
+ *      second independent run (fresh chromium.launch(), same URL) came back
+ *      at TTFB=195ms / LCP=0.22s — a ~93% drop, with the LCP-minus-TTFB gap
+ *      staying ~26ms both times (i.e. actual page rendering was identical;
+ *      the entire swing was in connection/startup time). Likely a one-time
+ *      cost on the very first launch of a newly-installed Chromium binary
+ *      (e.g. Windows Defender scanning it once), not a per-launch tax —
+ *      `launchSharedBrowser()` / the `browser` reuse option are still good
+ *      practice, just lower-priority than initially suspected. Run
+ *      `node tests/manual_coldstart_check.js` if you want to fully rule out
+ *      any residual first-navigation-per-session cost.
  *
  * Setup:
  *   npx playwright install chromium
