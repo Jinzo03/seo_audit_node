@@ -6,26 +6,46 @@
 <style>
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; background: #fafafa; }
   h1 { font-size: 22px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 28px; }
   .subtitle { color: #666; margin-top: 0; word-break: break-all; }
-  .score-banner { display: flex; align-items: center; gap: 24px; background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 24px; margin: 20px 0; }
-  .score-number { font-size: 48px; font-weight: 800; }
+
+  .gauge-wrap { display: flex; align-items: center; gap: 24px; background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 24px; margin: 20px 0; }
+  .gauge { width: 140px; height: 140px; flex-shrink: 0; transform: rotate(-90deg); }
+  .gauge-track { fill: none; stroke: #eee; stroke-width: 10; }
+  .gauge-fill { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1.1s ease-out; }
+  .gauge-green { stroke: #15803d; } .gauge-yellow { stroke: #a16207; } .gauge-orange { stroke: #c2410c; } .gauge-red { stroke: #b91c1c; }
+  .gauge-text { transform: rotate(90deg); transform-origin: 60px 60px; font-size: 28px; font-weight: 800; fill: #1a1a1a; }
+
   .score-green { color: #15803d; } .score-yellow { color: #a16207; } .score-orange { color: #c2410c; } .score-red { color: #b91c1c; }
   .tier-badge { font-size: 14px; font-weight: 600; padding: 4px 10px; border-radius: 999px; display: inline-block; }
   .badge-green { background: #dcfce7; color: #15803d; } .badge-yellow { background: #fef9c3; color: #a16207; }
   .badge-orange { background: #ffedd5; color: #c2410c; } .badge-red { background: #fee2e2; color: #b91c1c; }
+
   .subscores { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
   .subscore-card { flex: 1; min-width: 140px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
   .subscore-card .label { font-size: 12px; color: #666; text-transform: uppercase; }
   .subscore-card .value { font-size: 22px; font-weight: 700; }
   .bar-track { background: #eee; border-radius: 4px; height: 6px; margin-top: 6px; overflow: hidden; }
-  .bar-fill { background: #1d4ed8; height: 100%; }
+  .bar-fill { background: #1d4ed8; height: 100%; transition: width 1s ease-out; }
+
+  .not-measured { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin: 16px 0; }
+
+  .sparkline { width: 100%; height: 80px; background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-top: 8px; }
+
   table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; background: #fff; }
   th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
   th { background: #f1f1f1; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { background: #e5e5e5; }
+  th.sortable::after { content: ' \2195'; color: #999; font-size: 11px; }
   .sev-CRITICAL { color: #b91c1c; font-weight: 700; }
   .sev-WARNING { color: #c2410c; font-weight: 600; }
   .sev-NOTICE { color: #666; }
-  .not-measured { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin: 16px 0; }
+
+  .issue-filters { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-btn { border: 1px solid #ccc; background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .filter-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+
   a { color: #1d4ed8; }
 </style>
 </head>
@@ -33,8 +53,21 @@
   <h1>Résultats d'audit</h1>
   <p class="subtitle"><%= startUrl %> — <%= pages.length %> page(s) crawlée(s)</p>
 
-  <div class="score-banner">
-    <div class="score-number score-<%= result.tier.color %>"><%= result.final %></div>
+  <% const labels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
+  <% const circumference = 339.292; const targetOffset = (circumference * (1 - result.final / 100)).toFixed(2); %>
+  <p style="margin-top:20px"><a href="/">&larr; Nouvel audit</a></p>
+  <div class="gauge-wrap">
+    <svg viewBox="0 0 120 120" class="gauge">
+      <circle class="gauge-track" cx="60" cy="60" r="54" />
+      <circle
+        id="gaugeFill"
+        class="gauge-fill gauge-<%= result.tier.color %>"
+        cx="60" cy="60" r="54"
+        style="stroke-dasharray: <%= circumference %>; stroke-dashoffset: <%= circumference %>;"
+        data-target="<%= targetOffset %>"
+      />
+      <text x="60" y="60" text-anchor="middle" dominant-baseline="central" class="gauge-text"><%= result.final %></text>
+    </svg>
     <div>
       <span class="tier-badge badge-<%= result.tier.color %>"><%= result.tier.level %></span>
       <div style="margin-top:6px;color:#666;font-size:13px">Score sur 100, pondéré par catégorie</div>
@@ -42,28 +75,92 @@
   </div>
 
   <div class="subscores">
-    <% const labels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
     <% for (const key of Object.keys(result.percentages)) { %>
       <div class="subscore-card">
         <div class="label"><%= labels[key] %></div>
         <div class="value"><%= result.percentages[key] %>%</div>
-        <div class="bar-track"><div class="bar-fill" style="width:<%= result.percentages[key] %>%"></div></div>
+        <div class="bar-track"><div class="bar-fill" data-target-width="<%= result.percentages[key] %>" style="width:0%"></div></div>
       </div>
     <% } %>
   </div>
 
+  <% if (result.notYetMeasured.includes('lcp')) { %>
   <div class="not-measured">
-    <strong>Note :</strong> Performance (Core Web Vitals) et une partie de Mobile/UX ne sont pas encore mesurées
-    (nécessite Playwright — voir <code>src/performance/browserAudit.js</code>) : ces catégories affichent
-    des valeurs neutres et n'affectent pas encore le score final de façon pénalisante.
+    <strong>Note :</strong> Aucun navigateur n'a pu être lancé pour cet audit (Playwright/Chromium
+    indisponible sur cet environnement) — Performance (Core Web Vitals) et une partie de Mobile/UX
+    n'ont pas pu être mesurées cette fois-ci. Ces catégories affichent des valeurs neutres et
+    n'affectent pas le score final de façon pénalisante. Voir <code>src/performance/browserAudit.js</code>.
+  </div>
+  <% } else { %>
+  <div class="not-measured">
+    <strong>Note :</strong> Performance et Mobile/UX ont été mesurés via un échantillon de pages
+    (Playwright) — voir la liste des problèmes ci-dessous pour le détail.
+  </div>
+  <% } %>
+
+  <% if (history && history.length > 1) {
+    const chrono = [...history].reverse(); // history comes back newest-first; chart reads left-to-right
+    const w = 600, h = 80, pad = 10;
+    const scores = chrono.map((r) => r.final_score);
+    const minScore = Math.max(0, Math.min(...scores) - 5);
+    const maxScore = Math.min(100, Math.max(...scores) + 5);
+    const range = Math.max(1, maxScore - minScore);
+    const coords = chrono.map((r, i) => {
+      const x = chrono.length > 1 ? pad + (i / (chrono.length - 1)) * (w - 2 * pad) : w / 2;
+      const y = h - pad - ((r.final_score - minScore) / range) * (h - 2 * pad);
+      return { x: x.toFixed(1), y: y.toFixed(1), score: r.final_score };
+    });
+    const points = coords.map((c) => `${c.x},${c.y}`).join(' ');
+  %>
+  <h2>Historique pour ce domaine</h2>
+  <svg viewBox="0 0 <%= w %> <%= h %>" class="sparkline" preserveAspectRatio="none">
+    <polyline points="<%= points %>" fill="none" stroke="#1d4ed8" stroke-width="2" vector-effect="non-scaling-stroke" />
+    <% coords.forEach((c) => { %>
+      <circle cx="<%= c.x %>" cy="<%= c.y %>" r="3" fill="#1d4ed8"><title><%= c.score %></title></circle>
+    <% }) %>
+  </svg>
+  <table>
+    <thead><tr><th>Date</th><th>Score</th><th>Niveau</th><th>Pages crawlées</th></tr></thead>
+    <tbody>
+      <% for (const run of history) { %>
+        <tr>
+          <td><%= new Date(run.run_at).toLocaleString('fr-FR') %></td>
+          <td><%= run.final_score %></td>
+          <td><%= run.tier_level %></td>
+          <td><%= run.pages_crawled %></td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+  <% } %>
+
+  <h2>Problèmes détectés</h2>
+  <% const counts = { CRITICAL: 0, WARNING: 0, NOTICE: 0 };
+     result.issues.forEach((i) => { counts[i.severity] = (counts[i.severity] || 0) + 1; }); %>
+  <div class="issue-filters">
+    <button class="filter-btn active" data-severity="ALL">Tous (<%= result.issues.length %>)</button>
+    <button class="filter-btn" data-severity="CRITICAL">Critical (<%= counts.CRITICAL %>)</button>
+    <button class="filter-btn" data-severity="WARNING">Warning (<%= counts.WARNING %>)</button>
+    <button class="filter-btn" data-severity="NOTICE">Notice (<%= counts.NOTICE %>)</button>
   </div>
 
-  <h2 style="font-size:18px">Problèmes détectés (triés par impact)</h2>
-  <table>
-    <thead><tr><th>Catégorie</th><th>Sévérité</th><th>Points</th><th>Problème</th></tr></thead>
+  <table id="issuesTable">
+    <thead>
+      <tr>
+        <th class="sortable" data-sort="category">Catégorie</th>
+        <th class="sortable" data-sort="severity">Sévérité</th>
+        <th class="sortable" data-sort="points">Points</th>
+        <th class="sortable" data-sort="text">Problème</th>
+      </tr>
+    </thead>
     <tbody>
-      <% for (const issue of result.issues.slice(0, 30)) { %>
-        <tr>
+      <% for (const issue of result.issues) { %>
+        <tr
+          data-severity="<%= issue.severity %>"
+          data-category="<%= labels[issue.category] || issue.category %>"
+          data-points="<%= issue.points %>"
+          data-text="<%= issue.text.replace(/"/g, '&quot;') %>"
+        >
           <td><%= labels[issue.category] || issue.category %></td>
           <td class="sev-<%= issue.severity %>"><%= issue.severity %></td>
           <td><%= issue.points %></td>
@@ -73,6 +170,58 @@
     </tbody>
   </table>
 
-  <p style="margin-top:20px"><a href="/">&larr; Nouvel audit</a></p>
+  
+
+  <script>
+    // Animate the gauge and sub-score bars on load — set to their real
+    // values one frame after paint so the CSS transition actually runs
+    // instead of snapping straight to the final state.
+    window.addEventListener('DOMContentLoaded', () => {
+      requestAnimationFrame(() => {
+        const gauge = document.getElementById('gaugeFill');
+        if (gauge) gauge.style.strokeDashoffset = gauge.dataset.target;
+        document.querySelectorAll('.bar-fill').forEach((bar) => {
+          bar.style.width = bar.dataset.targetWidth + '%';
+        });
+      });
+    });
+
+    // Severity filter
+    (function () {
+      const buttons = document.querySelectorAll('.filter-btn');
+      const rows = Array.from(document.querySelectorAll('#issuesTable tbody tr'));
+      buttons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          buttons.forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          const sev = btn.dataset.severity;
+          rows.forEach((row) => {
+            row.style.display = (sev === 'ALL' || row.dataset.severity === sev) ? '' : 'none';
+          });
+        });
+      });
+
+      // Column sorting
+      let currentSort = { key: null, dir: 1 };
+      document.querySelectorAll('#issuesTable th.sortable').forEach((th) => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.sort;
+          const dir = currentSort.key === key ? -currentSort.dir : 1;
+          currentSort = { key, dir };
+
+          const tbody = document.querySelector('#issuesTable tbody');
+          const sorted = rows.slice().sort((a, b) => {
+            let av = a.dataset[key];
+            let bv = b.dataset[key];
+            if (key === 'points') { av = Number(av); bv = Number(bv); }
+            if (av < bv) return -1 * dir;
+            if (av > bv) return 1 * dir;
+            return 0;
+          });
+          sorted.forEach((row) => tbody.appendChild(row));
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -435,3 +435,111 @@ describe('sitemap parsing', () => {
     assert.deepEqual(urls, []);
   });
 });
+
+// ---------------------------------------------------------------------
+// Redirect chain / loop detection
+// ---------------------------------------------------------------------
+describe('redirect handling', () => {
+  function mockFetchSequence(routes) {
+    return async (url) => {
+      const route = routes[url];
+      if (!route) throw new Error(`Unexpected fetch to ${url}`);
+      return {
+        status: route.status,
+        headers: { get: (name) => (name.toLowerCase() === 'location' ? route.location || null : null) },
+      };
+    };
+  }
+
+  test('a direct response with no redirect reports zero hops', async () => {
+    const crawler = new Crawler('https://site.com');
+    const originalFetch = global.fetch;
+    global.fetch = mockFetchSequence({ 'https://site.com/page': { status: 200 } });
+    try {
+      const { redirectHops, redirectLoopDetected } = await crawler.fetchOne('https://site.com/page');
+      assert.equal(redirectHops, 0);
+      assert.equal(redirectLoopDetected, false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('a single redirect hop is counted correctly', async () => {
+    const crawler = new Crawler('https://site.com');
+    const originalFetch = global.fetch;
+    global.fetch = mockFetchSequence({
+      'https://site.com/old': { status: 301, location: 'https://site.com/new' },
+      'https://site.com/new': { status: 200 },
+    });
+    try {
+      const { resp, redirectHops, redirectLoopDetected } = await crawler.fetchOne('https://site.com/old');
+      assert.equal(redirectHops, 1);
+      assert.equal(redirectLoopDetected, false);
+      assert.equal(resp.status, 200);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('a multi-hop redirect chain is counted correctly', async () => {
+    const crawler = new Crawler('https://site.com');
+    const originalFetch = global.fetch;
+    global.fetch = mockFetchSequence({
+      'https://site.com/a': { status: 301, location: 'https://site.com/b' },
+      'https://site.com/b': { status: 302, location: 'https://site.com/c' },
+      'https://site.com/c': { status: 301, location: 'https://site.com/d' },
+      'https://site.com/d': { status: 200 },
+    });
+    try {
+      const { redirectHops, redirectLoopDetected } = await crawler.fetchOne('https://site.com/a');
+      assert.equal(redirectHops, 3);
+      assert.equal(redirectLoopDetected, false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('a redirect loop is detected instead of looping forever', async () => {
+    const crawler = new Crawler('https://site.com');
+    const originalFetch = global.fetch;
+    global.fetch = mockFetchSequence({
+      'https://site.com/x': { status: 301, location: 'https://site.com/y' },
+      'https://site.com/y': { status: 301, location: 'https://site.com/x' },
+    });
+    try {
+      const { redirectLoopDetected } = await crawler.fetchOne('https://site.com/x');
+      assert.equal(redirectLoopDetected, true);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('an excessively long chain is capped by maxRedirects instead of followed indefinitely', async () => {
+    const crawler = new Crawler('https://site.com', { maxRedirects: 3 });
+    const originalFetch = global.fetch;
+    const routes = {};
+    for (let i = 0; i < 10; i += 1) {
+      routes[`https://site.com/step${i}`] = { status: 301, location: `https://site.com/step${i + 1}` };
+    }
+    global.fetch = mockFetchSequence(routes);
+    try {
+      const { redirectHops } = await crawler.fetchOne('https://site.com/step0');
+      assert.equal(redirectHops, 3); // stopped at the cap, not all 10
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('a redirect with a missing Location header is treated as final rather than crashing', async () => {
+    const crawler = new Crawler('https://site.com');
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({ status: 301, headers: { get: () => null } });
+    try {
+      const { resp, redirectHops } = await crawler.fetchOne('https://site.com/weird');
+      assert.equal(redirectHops, 0);
+      assert.equal(resp.status, 301);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});

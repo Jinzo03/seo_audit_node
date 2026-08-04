@@ -3,11 +3,14 @@ const path = require('path');
 const { Crawler } = require('./crawler/crawler');
 const { scoreSite } = require('./scoring/buildAuditData');
 const { selectPagesForBrowserAudit } = require('./performance/selectSample');
+const { initDb, saveAuditRun, getAuditHistory } = require('./storage/db');
 
 const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '..', 'views'));
 app.use(express.urlencoded({ extended: true }));
+
+const db = initDb();
 
 const BROWSER_SAMPLE_SIZE = 5;
 
@@ -84,7 +87,21 @@ app.post('/audit', async (req, res) => {
       pages, sitemapResult, sslResult, browserResults, robots: crawler.robots, startUrl: crawler.startUrl,
     });
 
-    res.render('results', { startUrl: crawler.startUrl, pages, result });
+    // Persist before fetching history so the trend view includes this run.
+    try {
+      saveAuditRun(db, { startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result });
+    } catch (err) {
+      console.warn('Could not save audit run to history:', err.message);
+    }
+
+    let history = [];
+    try {
+      history = getAuditHistory(db, crawler.startUrl);
+    } catch (err) {
+      console.warn('Could not load audit history:', err.message);
+    }
+
+    res.render('results', { startUrl: crawler.startUrl, pages, result, history });
   } catch (err) {
     res.status(500).send(`Audit failed: ${err.message}`);
   }

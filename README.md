@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-136 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling), no live network
+144 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -52,12 +52,17 @@ src/
                           it on every page
     browserAudit.js      Playwright: real Core Web Vitals + mobile/UX checks
                           for one page — verified against a live site
+  storage/
+    db.js                SQLite persistence (better-sqlite3) — saves every
+                          audit run and serves the historical trend view
   server.js             Express app; runs the sampled browser audit with a
                          graceful fallback if Playwright/Chromium isn't
-                         available in a given environment (see below)
-views/                  server-rendered EJS templates (functional, not the
-                         final gauge dashboard — that's Week 4)
-tests/                  136 tests across 20 suites
+                         available, then saves the run and loads history
+                         for the domain before rendering
+views/                  server-rendered EJS templates, now including the
+                         animated score gauge, historical trend sparkline,
+                         and filterable/sortable issue list (all Week 4)
+tests/                  144 tests across 21 suites
 ```
 
 ## Findings worth knowing about
@@ -169,7 +174,7 @@ mobile/UX heuristics (tap targets, popups, font size) against a page with
 more varied real content is the natural next step, though it's no longer
 blocking — the module is wired into the live audit flow now.
 
-## Proposed 5-week roadmap (3 weeks now complete)
+## Proposed 5-week roadmap (4 weeks now complete)
 
 **Week 1 (done) — Scoping and foundation.** Stack decision, crawler ported
 and tested, scoring engine implemented in full from the spec, crawl-to-score
@@ -215,12 +220,34 @@ heuristics against a page with more varied real content (multiple images,
 varied button sizes, an actual popup) is worth doing, though it no longer
 blocks anything since the module is wired into the live flow already.
 
-**Week 4 — Frontend / dashboard**
-- Circular score gauge with dynamic color + load animation (SVG or Canvas)
-- 5 sub-score progress bars (have the data already — just needs the visual)
-- Filterable/sortable issues list by severity
-- Historical trend: needs persistence — `better-sqlite3` is already
-  installed; store each audit run keyed by domain + timestamp
+**Week 4 (done) — Frontend / dashboard.**
+- Circular SVG score gauge with dynamic color (per tier) and a load
+  animation — starts at 0 and fills to the real score via a CSS
+  `stroke-dashoffset` transition, triggered one frame after paint
+- Sub-score bars animate the same way (0 → real width on load)
+- Issue list is filterable by severity (Critical/Warning/Notice, with live
+  counts) and sortable by clicking any column header (click again to
+  reverse), all vanilla JS — no framework needed for this scope, consistent
+  with the earlier EJS-vs-React reasoning
+- Historical trend: `src/storage/db.js` (better-sqlite3) persists every
+  audit run — domain, timestamp, final score, all five sub-scores, pages
+  crawled, issue count. `server.js` saves each run and loads the domain's
+  history before rendering. The results page shows a sparkline (plain
+  inline SVG, no charting library) plus a table once a domain has 2+ runs.
+  Verified live: ran two audits against the same site back-to-back,
+  confirmed both persisted correctly and the trend section appeared with
+  real data on the second run.
+- 8 new tests for `db.js` using a real temporary SQLite file (not mocked —
+  better-sqlite3 needs no network, so there was no reason not to test
+  against the real thing)
+
+**Honest limitation**: the client-side JS (gauge animation, filter, sort)
+is syntax-checked and was reasoned through carefully, but couldn't be
+exercised in a real browser from this environment — there's no headless
+browser available here beyond what Playwright itself needs (see the Week 3
+cold-start notes). Worth clicking through the filters/sorting/animation
+once locally before considering this fully verified, the same way
+`browserAudit.js` needed a real local run to catch its bugs.
 
 **Week 5 — Polish, edge cases, report generation, buffer**
 - PDF/exportable report generation
@@ -230,12 +257,9 @@ blocks anything since the module is wired into the live flow already.
   "Findings worth knowing about" section above as a short note for the
   encadrant
 - Buffer for whatever testing `browserAudit.js` against more varied real
-  sites turns up (see the open item at the end of Week 3 above)
+  sites turns up (see the open item at the end of Week 3 above), and for
+  clicking through the Week 4 frontend locally per the note above
 
 ## Easy wins if time is short
-- The frontend gauge/dashboard (Week 4) can be built against data that
-  already exists today (`result.final`, `result.percentages`,
-  `result.issues`) — nothing left to wait on from earlier weeks.
-- Persisting audit runs to `better-sqlite3` (already installed, unused so
-  far) unlocks the historical-trend feature and can be built independently
-  of the Week 4 gauge work.
+- Persisting audit runs to `better-sqlite3` is now done — nothing left to
+  build there, just something to click through locally.
