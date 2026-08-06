@@ -2,25 +2,266 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Audit Site — Scoring SEO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit Site — Scoring SEO sur 100</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #1a1a1a; }
-  h1 { font-size: 24px; }
-  form { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-top: 20px; }
-  label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
-  input { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-  button { background: #1d4ed8; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  :root {
+    --ink: #12151a;
+    --ink-soft: #3d4451;
+    --slate: #6b7280;
+    --paper: #f3f5f4;
+    --paper-raised: #ffffff;
+    --grid-line: #e2e5e3;
+    --signal: #2453ff;
+    --signal-dim: #e8edff;
+    --pass: #1f9d6c;
+    --font-display: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: var(--font-display);
+    color: var(--ink);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    min-height: 100vh;
+  }
+
+  .scan-line {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--signal) 45%, var(--signal) 55%, transparent);
+    opacity: 0.35;
+    animation: scan-sweep 7s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes scan-sweep {
+    0% { transform: translateY(0); opacity: 0; }
+    8% { opacity: 0.35; }
+    50% { opacity: 0.35; }
+    92% { opacity: 0; }
+    100% { transform: translateY(100vh); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scan-line, .status-dot { animation: none; }
+  }
+
+  .topbar {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 32px;
+    border-bottom: 1px solid var(--grid-line);
+    background: rgba(243, 245, 244, 0.85);
+    backdrop-filter: blur(4px);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--pass);
+    box-shadow: 0 0 0 0 rgba(31, 157, 108, 0.5);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(31, 157, 108, 0.45); }
+    70% { box-shadow: 0 0 0 6px rgba(31, 157, 108, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(31, 157, 108, 0); }
+  }
+  .topbar-tag { color: var(--slate); }
+
+  main {
+    position: relative;
+    z-index: 2;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 72px 24px 48px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--signal);
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 16px;
+  }
+
+  .lede {
+    color: var(--ink-soft);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0 0 24px;
+    max-width: 50ch;
+  }
+
+  .weights {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 40px;
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    background: var(--paper-raised);
+    border: 1px solid var(--grid-line);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--ink-soft);
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  .panel {
+    background: var(--paper-raised);
+    border: 1px solid var(--grid-line);
+    border-radius: 10px;
+    padding: 28px;
+    box-shadow: 0 1px 2px rgba(18, 21, 26, 0.04), 0 8px 24px rgba(18, 21, 26, 0.05);
+  }
+  .panel-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--slate);
+    display: block;
+    margin-bottom: 8px;
+  }
+  .field { margin-bottom: 20px; }
+  .field:last-of-type { margin-bottom: 26px; }
+
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--grid-line);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  input[type="number"] { max-width: 140px; }
+  input::placeholder { color: #a4a9ae; }
+  input:focus {
+    border-color: var(--signal);
+    box-shadow: 0 0 0 3px var(--signal-dim);
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 13px 22px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  button:hover { background: var(--signal); }
+  button:active { transform: translateY(1px); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button .arrow { font-size: 13px; }
+
+  footer {
+    position: relative;
+    z-index: 2;
+    max-width: 640px;
+    margin: 32px auto 0;
+    padding: 0 24px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--slate);
+  }
+
+  @media (max-width: 520px) {
+    main { padding-top: 48px; }
+    h1 { font-size: 27px; }
+    .topbar { padding: 12px 18px; }
+  }
 </style>
 </head>
 <body>
-  <h1>Audit Site — Scoring SEO sur 100</h1>
-  <p>Basé sur la méthodologie de scoring (crawlabilité, technique, performance, on-page, mobile).</p>
-  <form action="/audit" method="post">
-    <label for="url">URL du site</label>
-    <input type="text" id="url" name="url" placeholder="https://example.com" required>
-    <label for="maxPages">Pages max à crawler</label>
-    <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
-    <button type="submit">Lancer l'audit</button>
-  </form>
+  <div class="scan-line" aria-hidden="true"></div>
+
+  <div class="topbar">
+    <span class="status"><span class="status-dot" aria-hidden="true"></span> Scanner ready</span>
+    <span class="topbar-tag">audit-tool</span>
+  </div>
+
+  <main>
+    <p class="eyebrow">Site audit</p>
+    <h1>Score your site out of 100.</h1>
+    <p class="lede">
+      Crawls a site and grades it against a five-category weighted model —
+      crawlability, technical health, performance, on-page SEO, and mobile
+      &amp; UX — the same structure a manual audit would follow.
+    </p>
+
+    <div class="weights">
+      <span class="chip"><b>30%</b> Crawlability</span>
+      <span class="chip"><b>25%</b> Technique</span>
+      <span class="chip"><b>20%</b> Performance</span>
+      <span class="chip"><b>15%</b> On-page</span>
+      <span class="chip"><b>10%</b> Mobile &amp; UX</span>
+    </div>
+
+    <form class="panel" action="/audit" method="post">
+      <div class="field">
+        <label class="panel-label" for="url">Target URL</label>
+        <input type="text" id="url" name="url" placeholder="https://example.com" required>
+      </div>
+      <div class="field">
+        <label class="panel-label" for="maxPages">Max pages to crawl</label>
+        <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
+      </div>
+      <button type="submit"><span class="arrow">&#9656;</span> Run scan</button>
+    </form>
+  </main>
+
+  <footer>Historique conservé par domaine · Playwright pour Performance &amp; Mobile si disponible</footer>
 </body>
 </html>

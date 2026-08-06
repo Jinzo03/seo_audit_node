@@ -17,6 +17,8 @@ class Crawler {
       timeoutMs = 10000,
       delayMs = 0,
       maxRedirects = 10,
+      crawlTimeoutMs = 60000,
+      maxPageSizeBytes = 5 * 1024 * 1024,
     } = options;
 
     this.startUrl = startUrl.replace(/\/$/, '');
@@ -29,6 +31,9 @@ class Crawler {
     this.timeoutMs = timeoutMs;
     this.delayMs = delayMs;
     this.maxRedirects = maxRedirects;
+    this.crawlTimeoutMs = crawlTimeoutMs;
+    this.maxPageSizeBytes = maxPageSizeBytes;
+    this.crawlTimedOut = false;
 
     this.visited = new Set();
     this.queue = [];
@@ -185,6 +190,14 @@ class Crawler {
     data.securityHeadersPresent = hasAnySecurityHeader(resp.headers);
 
     const html = await resp.text();
+
+    if (Buffer.byteLength(html, 'utf8') > this.maxPageSizeBytes) {
+      data.pageTooLarge = true;
+      data.pageSizeBytes = Buffer.byteLength(html, 'utf8');
+      return data; // skip full parsing — not worth the memory/CPU cost, and
+      // a page this large is unusual enough to flag rather than analyze
+    }
+
     return this.extractPageData(data, html, url);
   }
 
@@ -214,6 +227,7 @@ class Crawler {
     const text = extract.extractText($);
     data.wordCount = extract.wordCount(text);
     data.contentHash = extract.contentHash(text);
+    data.possibleSpa = extract.detectPossibleSpa($, data.wordCount);
 
     data.structuredDataRaw = extract.extractStructuredData($);
     data.isHttps = url.startsWith('https://');
@@ -237,7 +251,14 @@ class Crawler {
 
     await this.ensureRobotsLoaded();
 
+    const deadline = Date.now() + this.crawlTimeoutMs;
+
     while (this.queue.length > 0 && this.results.length < this.maxPages) {
+      if (Date.now() >= deadline) {
+        this.crawlTimedOut = true;
+        break; // return whatever was collected rather than hang indefinitely
+      }
+
       const batch = this.dequeueBatch();
       const fetched = await this.fetchWithConcurrencyCap(batch);
 

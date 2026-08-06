@@ -218,12 +218,14 @@ function average(numbers) {
  * Crawler#checkSitemap(); `robots` is crawler.robots after ensureRobotsLoaded.
  */
 function scoreSite({
-  pages, sitemapResult, robots, startUrl, sslResult, browserResults, duplicateContentPageCount = 0,
+  pages, sitemapResult, robots, startUrl, sslResult, browserResults, crawlTimedOut = false, duplicateContentPageCount = 0,
 }) {
   const htmlPages = pages.filter((p) => p.title !== undefined);
 
   const titleCounts = countOccurrences(htmlPages.map((p) => p.title).filter(Boolean));
   const descriptionCounts = countOccurrences(htmlPages.map((p) => p.metaDescription).filter(Boolean));
+
+  const possibleSpaPages = htmlPages.filter((p) => p.possibleSpa).map((p) => p.url);
 
   const crawlabilityData = buildCrawlabilityData(pages, sitemapResult, robots, startUrl);
   const technicalData = buildTechnicalData(pages, sslResult, htmlPages);
@@ -306,6 +308,8 @@ function scoreSite({
     notYetMeasured: performanceScores.length > 0
       ? ALWAYS_NOT_YET_MEASURED
       : [...ALWAYS_NOT_YET_MEASURED, ...BROWSER_ONLY_FIELDS],
+    crawlTimedOut,
+    possibleSpaPages,
   };
 }
 
