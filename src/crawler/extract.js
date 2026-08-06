@@ -94,6 +94,13 @@ function extractLinks($, baseUrl) {
   return links;
 }
 
+function detectPossibleSpa($) {
+  // Heuristic: if the page has no <h1> and no <title>, it might be a SPA.
+  const hasH1 = $('h1').length > 0;
+  const hasTitle = $('title').length > 0;
+  return !hasH1 && !hasTitle;
+}
+
 module.exports = {
   extractTitle,
   extractMetaDescription,
@@ -108,4 +115,5 @@ module.exports = {
   contentHash,
   extractStructuredData,
   extractLinks,
+  detectPossibleSpa
 };
