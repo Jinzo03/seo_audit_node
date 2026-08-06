@@ -228,21 +228,21 @@
   <div class="scan-line" aria-hidden="true"></div>
 
   <div class="topbar">
-    <span class="status"><span class="status-dot" aria-hidden="true"></span> Scanner ready</span>
+    <span class="status"><span class="status-dot" aria-hidden="true"></span> Scanner prêt </span>
     <span class="topbar-tag">audit-tool</span>
   </div>
 
   <main>
     <p class="eyebrow">Site audit</p>
-    <h1>Score your site out of 100.</h1>
+    <h1>Notez votre site sur 100.</h1>
     <p class="lede">
-      Crawls a site and grades it against a five-category weighted model —
-      crawlability, technical health, performance, on-page SEO, and mobile
-      &amp; UX — the same structure a manual audit would follow.
+      Analyse un site et le note par rapport à un modèle pondéré à cinq catégories :
+      crawlabilité, santé technique, performances, référencement sur la page et mobile
+      &amp; UX — la même structure qu'un audit manuel suivrait.
     </p>
 
     <div class="weights">
-      <span class="chip"><b>30%</b> Crawlability</span>
+      <span class="chip"><b>30%</b> Crawlabilité</span>
       <span class="chip"><b>25%</b> Technique</span>
       <span class="chip"><b>20%</b> Performance</span>
       <span class="chip"><b>15%</b> On-page</span>
@@ -251,14 +251,14 @@
 
     <form class="panel" action="/audit" method="post">
       <div class="field">
-        <label class="panel-label" for="url">Target URL</label>
+        <label class="panel-label" for="url">URL cible</label>
         <input type="text" id="url" name="url" placeholder="https://example.com" required>
       </div>
       <div class="field">
-        <label class="panel-label" for="maxPages">Max pages to crawl</label>
+        <label class="panel-label" for="maxPages">Nombre maximum de pages à analyser</label>
         <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
       </div>
-      <button type="submit"><span class="arrow">&#9656;</span> Run scan</button>
+      <button type="submit"><span class="arrow">&#9656;</span> Lancer l'analyse</button>
     </form>
   </main>
 
