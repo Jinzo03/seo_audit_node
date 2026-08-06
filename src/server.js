@@ -85,6 +85,7 @@ app.post('/audit', async (req, res) => {
 
     const result = scoreSite({
       pages, sitemapResult, sslResult, browserResults, robots: crawler.robots, startUrl: crawler.startUrl,
+      crawlTimedOut: crawler.crawlTimedOut,
     });
 
     // Persist before fetching history so the trend view includes this run.

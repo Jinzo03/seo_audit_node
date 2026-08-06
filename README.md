@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-144 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence), no live network
+153 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -41,7 +41,14 @@ src/
                           (Node's tls module — the only one of these four
                           that makes its own network connection)
     crawler.js           orchestrates all of the above; the only layer
-                          driving the actual crawl
+                          driving the actual crawl. Also owns three
+                          edge-case guards added in Week 5: an overall
+                          crawl deadline (crawlTimeoutMs, separate from the
+                          per-request timeout), a per-page size cap that
+                          skips full parsing on pathologically large pages,
+                          and SPA detection (flags pages that look
+                          JS-rendered with almost no real HTML content,
+                          since this crawler never executes JavaScript)
   scoring/
     auditScoring.js     the cahier de charge's scoring rules, fully implemented
     buildAuditData.js   maps crawl output -> AuditScoring input, produces one
@@ -59,13 +66,81 @@ src/
                          graceful fallback if Playwright/Chromium isn't
                          available, then saves the run and loads history
                          for the domain before rendering
-views/                  server-rendered EJS templates, now including the
-                         animated score gauge, historical trend sparkline,
-                         and filterable/sortable issue list (all Week 4)
-tests/                  144 tests across 21 suites
+views/                  server-rendered EJS templates: a "diagnostic
+                         console" visual design (IBM Plex Sans/Mono, ink/
+                         paper/signal palette, animated scan line), with the
+                         score gauge, historical sparkline, and filterable/
+                         sortable issue list from Week 4, plus a Week 5
+                         print stylesheet that turns the same page into a
+                         clean PDF report via the browser's own print dialog
+tests/                  153 tests across 24 suites
 ```
 
 ## Findings worth knowing about
+
+**PDF export uses the browser's own print dialog, not a server-side PDF
+library.** `results.ejs` has a `@media print` stylesheet and a "Télécharger
+le rapport (PDF)" button that calls `window.print()` — the user picks "Save
+as PDF" as the destination. This was a deliberate choice over generating
+PDFs server-side (e.g. with Playwright, which is already a dependency):
+zero new code paths, the exported report is guaranteed to match exactly
+what's on screen (no risk of a second crawl producing different data), and
+no changes needed to the SQLite schema to store full per-page issue data
+for later regeneration. Actually verified, not just written and assumed:
+rendered real audit data through the template and generated a PDF with
+`wkhtmltopdf` (also available in the build sandbox), then converted it to
+an image to confirm the print rules actually applied — topbar, filter
+buttons, and background grid correctly hidden; severity colors and the
+score gauge correctly preserved.
+
+**Three edge-case gaps got closed**, found by asking "what would actually
+break this in production" rather than waiting for a bug report:
+- No overall crawl deadline existed — only a per-request timeout. A site
+  with many slow-but-not-quite-timing-out pages could have made a single
+  audit run for a very long time. Added `crawlTimeoutMs` (default 60s,
+  separate from the per-request `timeoutMs`), checked at the top of each
+  batch in the crawl loop; if exceeded, the crawl returns whatever it
+  collected instead of continuing, and `crawlTimedOut` is surfaced on the
+  results page.
+- No cap existed on individual page size — a pathologically large page
+  (multi-megabyte HTML) would get fully parsed by Cheerio regardless.
+  Added `maxPageSizeBytes` (default 5MB); pages over the limit skip full
+  extraction and are flagged `pageTooLarge` instead.
+- JS-rendered (SPA) pages would silently produce misleading results —
+  React/Vue/Angular apps often serve almost-empty initial HTML (the real
+  content only exists after JavaScript runs), and this crawler never
+  executes JavaScript. Added a heuristic (`detectPossibleSpa`): a known
+  framework root container — `#root`, `#app`, `#__next`, `#__nuxt`,
+  `[data-reactroot]`, `[ng-version]` — combined with very little text is
+  flagged, and the results page now discloses this honestly ("this may be
+  a crawler limitation, not a real SEO problem") instead of just reporting
+  thin-content findings as if they were confirmed issues.
+
+**The UI got a full visual redesign.** The original functional-but-generic
+form styling (plain bordered card, default blue button) was replaced with a
+deliberate "diagnostic console" design — IBM Plex Sans/Mono, an ink/paper/
+signal color system, a faint grid background with an animated scan line,
+and category weights shown as real chips (30/25/20/15/10%) instead of a
+throwaway sentence. Both pages share the same design tokens for
+consistency. This wasn't just eyeballed: rendered with `wkhtmltoimage`
+(available in the build sandbox) to actually look at the output rather than
+trust the CSS blindly, at both desktop and mobile widths.
+
+**That screenshot process caught a real bug.** The results page's tables
+(history and issues) had no horizontal-scroll containment, so at a 380px
+mobile width the whole page overflowed to 724px instead of staying within
+the viewport — confirmed by checking actual rendered pixel dimensions, not
+just eyeballing it. Fixed by wrapping both tables in a scrollable container
+(`overflow-x: auto`) instead of letting them force the whole page wider,
+plus `overflow-x: hidden` on `<body>` as a safety net. Re-verified after
+the fix: page rendered at exactly 380px as requested, with the table itself
+showing a contained horizontal scrollbar instead.
+
+**The gauge/bar-fill animation JS was confirmed to actually execute**, not
+just pass a syntax check — the rendered screenshot showed the gauge and
+bars already filled to their real values (not stuck at their initial 0%
+state), which only happens if `requestAnimationFrame` and the dataset
+reads in the `<script>` block ran correctly in a real rendering engine.
 
 **Two tools/metrics named in the spec no longer exist in their original
 form**, discovered while researching how to implement them:
@@ -174,7 +249,7 @@ mobile/UX heuristics (tap targets, popups, font size) against a page with
 more varied real content is the natural next step, though it's no longer
 blocking — the module is wired into the live audit flow now.
 
-## Proposed 5-week roadmap (4 weeks now complete)
+## Proposed 5-week roadmap (all 5 weeks complete)
 
 **Week 1 (done) — Scoping and foundation.** Stack decision, crawler ported
 and tested, scoring engine implemented in full from the spec, crawl-to-score
@@ -241,25 +316,41 @@ blocks anything since the module is wired into the live flow already.
   better-sqlite3 needs no network, so there was no reason not to test
   against the real thing)
 
-**Honest limitation**: the client-side JS (gauge animation, filter, sort)
-is syntax-checked and was reasoned through carefully, but couldn't be
-exercised in a real browser from this environment — there's no headless
-browser available here beyond what Playwright itself needs (see the Week 3
-cold-start notes). Worth clicking through the filters/sorting/animation
-once locally before considering this fully verified, the same way
-`browserAudit.js` needed a real local run to catch its bugs.
+**Update on the earlier "can't test client-side JS" limitation**:
+`wkhtmltoimage` turned out to be available in the sandbox, which allowed
+actually rendering both pages and confirming the gauge/bar-fill animation
+JS executes correctly (see the visual redesign findings above) — that's
+more than a syntax check now. What's still genuinely unverified: clicking
+the severity filter buttons and the sortable column headers, since
+`wkhtmltoimage` captures a single static render rather than simulating
+interaction. Worth a quick local click-through before considering that part
+fully verified.
 
-**Week 5 — Polish, edge cases, report generation, buffer**
-- PDF/exportable report generation
-- Handle edge cases: JS-rendered sites (SPA detection), very large sites,
-  crawl timeouts
-- Write up the retired-tooling and spec-ambiguity findings from the
-  "Findings worth knowing about" section above as a short note for the
-  encadrant
-- Buffer for whatever testing `browserAudit.js` against more varied real
-  sites turns up (see the open item at the end of Week 3 above), and for
-  clicking through the Week 4 frontend locally per the note above
+**Week 5 (done) — Polish, edge cases, report generation.**
+- PDF export via the browser's print dialog (`window.print()` + a
+  `@media print` stylesheet) — verified with a real `wkhtmltopdf` render,
+  not just written and trusted (see findings above)
+- Three edge-case gaps closed: an overall crawl deadline separate from the
+  per-request timeout, a page-size cap that skips parsing pathologically
+  large pages, and SPA detection that honestly discloses when "thin
+  content" findings might just be a crawler limitation rather than a real
+  SEO problem
+- 9 new tests (5 for SPA detection, 2 for the crawl deadline, 2 for the
+  page-size guard)
+- This README **is** the write-up for the encadrant — every finding above
+  (retired tooling, the spec's own arithmetic discrepancy, the per-page-vs-
+  per-site scoring ambiguity, every bug caught and how) is already
+  documented in place rather than duplicated into a separate document
+
+**Still genuinely open, not closed out by this week**: `browserAudit.js`
+has still only been tested against `example.com` — testing the mobile/UX
+heuristics against a page with real varied content remains worth doing.
+Clicking through the Week 4 filter/sort buttons in a real browser (not just
+confirming the animation JS executes, which the Week 4 screenshots did)
+is also still outstanding. Neither blocks anything — both are refinement,
+not missing functionality.
 
 ## Easy wins if time is short
-- Persisting audit runs to `better-sqlite3` is now done — nothing left to
-  build there, just something to click through locally.
+- Nothing left on the original roadmap — all 5 weeks are built and tested.
+  If more time opens up, the two "still genuinely open" items just above
+  are the best use of it.

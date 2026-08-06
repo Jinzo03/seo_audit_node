@@ -161,6 +161,37 @@ describe('extraction', () => {
 });
 
 // ---------------------------------------------------------------------
+// SPA / JS-rendered page detection
+// ---------------------------------------------------------------------
+describe('detectPossibleSpa', () => {
+  test('flags a React-style empty root with almost no text', () => {
+    const $ = cheerio.load('<html><body><div id="root"></div><script src="/bundle.js"></script></body></html>');
+    assert.equal(extract.detectPossibleSpa($, 0), true);
+  });
+
+  test('flags a Vue/Nuxt-style app root the same way', () => {
+    const $ = cheerio.load('<html><body><div id="__nuxt"></div></body></html>');
+    assert.equal(extract.detectPossibleSpa($, 5), true);
+  });
+
+  test('flags an Angular app via the ng-version attribute', () => {
+    const $ = cheerio.load('<html><body><app-root ng-version="17.0.0"></app-root></body></html>');
+    assert.equal(extract.detectPossibleSpa($, 0), true);
+  });
+
+  test('does not flag a normal content-rich page even if it happens to have a #root div', () => {
+    const html = `<html><body><div id="root">${'word '.repeat(80)}</div></body></html>`;
+    const $ = cheerio.load(html);
+    assert.equal(extract.detectPossibleSpa($, 80), false);
+  });
+
+  test('does not flag an ordinary page with no SPA root markers', () => {
+    const $ = cheerio.load('<html><body><p>Just a normal thin page.</p></body></html>');
+    assert.equal(extract.detectPossibleSpa($, 5), false);
+  });
+});
+
+// ---------------------------------------------------------------------
 // Duplicate detection
 // ---------------------------------------------------------------------
 describe('duplicate detection', () => {
@@ -541,5 +572,80 @@ describe('redirect handling', () => {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+});
+
+// ---------------------------------------------------------------------
+// Overall crawl timeout (distinct from the per-request timeoutMs)
+// ---------------------------------------------------------------------
+describe('crawl-level timeout', () => {
+  test('stops crawling once the overall deadline is reached, instead of running until maxPages', async () => {
+    const crawler = new Crawler('https://site.com', { maxPages: 100, crawlTimeoutMs: 60, delayMs: 0 });
+    const originalFetch = global.fetch;
+    let counter = 0;
+    global.fetch = async (url) => {
+      counter += 1;
+      const n = counter;
+      await new Promise((resolve) => setTimeout(resolve, 25)); // each fetch takes 25ms
+      return {
+        status: 200,
+        headers: { get: (name) => (name === 'content-type' ? 'text/html' : null) },
+        text: async () => `<html><body><a href="https://site.com/p${n}-next">next</a></body></html>`,
+      };
+    };
+    try {
+      const results = await crawler.crawl();
+      assert.ok(results.length < 100, `expected the crawl to stop early, got ${results.length} pages`);
+      assert.equal(crawler.crawlTimedOut, true);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('does not set crawlTimedOut when the crawl finishes well within the deadline', async () => {
+    const crawler = new Crawler('https://site.com', { maxPages: 2, crawlTimeoutMs: 60000, delayMs: 0 });
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      status: 200,
+      headers: { get: (name) => (name === 'content-type' ? 'text/html' : null) },
+      text: async () => '<html><body>done</body></html>',
+    });
+    try {
+      await crawler.crawl();
+      assert.equal(crawler.crawlTimedOut, false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------
+// Large page size guard
+// ---------------------------------------------------------------------
+describe('large page size guard', () => {
+  test('pages over maxPageSizeBytes skip full extraction and are flagged', async () => {
+    const crawler = new Crawler('https://site.com', { maxPageSizeBytes: 100 });
+    const hugeHtml = `<html><head><title>Huge</title></head><body>${'x'.repeat(500)}</body></html>`;
+    const fakeResp = {
+      status: 200,
+      headers: { get: (name) => (name === 'content-type' ? 'text/html' : null) },
+      text: async () => hugeHtml,
+    };
+    const page = await crawler.processPage('https://site.com/huge', fakeResp, 10, null);
+    assert.equal(page.pageTooLarge, true);
+    assert.ok(page.pageSizeBytes > 100);
+    assert.equal('title' in page, false); // extraction was skipped
+  });
+
+  test('pages under the size cap extract normally', async () => {
+    const crawler = new Crawler('https://site.com', { maxPageSizeBytes: 100000 });
+    const fakeResp = {
+      status: 200,
+      headers: { get: (name) => (name === 'content-type' ? 'text/html' : null) },
+      text: async () => '<html><head><title>Normal page</title></head><body>Some content.</body></html>',
+    };
+    const page = await crawler.processPage('https://site.com/normal', fakeResp, 10, null);
+    assert.equal(page.pageTooLarge, undefined);
+    assert.equal(page.title, 'Normal page');
   });
 });

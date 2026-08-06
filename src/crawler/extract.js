@@ -94,11 +94,24 @@ function extractLinks($, baseUrl) {
   return links;
 }
 
-function detectPossibleSpa($) {
-  // Heuristic: if the page has no <h1> and no <title>, it might be a SPA.
-  const hasH1 = $('h1').length > 0;
-  const hasTitle = $('title').length > 0;
-  return !hasH1 && !hasTitle;
+// Common containers that JS frameworks mount into. Their presence alongside
+// very little actual text is a strong signal the real content only exists
+// after JavaScript runs — which this crawler (fetch + Cheerio) never does.
+// This isn't a scoring rule from the cahier de charge; it's an honest
+// disclosure that "thin content" or "missing title" findings on a page
+// like this may just be an artifact of the crawler's own limitation, not a
+// real SEO problem with the site.
+const SPA_ROOT_SELECTORS = ['#root', '#app', '#__next', '#__nuxt', '[data-reactroot]', '[ng-version]'];
+
+function detectPossibleSpa($, wordCount) {
+  if (wordCount >= 50) return false; // enough real text to not be a rendering artifact
+  return SPA_ROOT_SELECTORS.some((selector) => {
+    try {
+      return $(selector).length > 0;
+    } catch (err) {
+      return false;
+    }
+  });
 }
 
 module.exports = {
@@ -115,5 +128,5 @@ module.exports = {
   contentHash,
   extractStructuredData,
   extractLinks,
-  detectPossibleSpa
+  detectPossibleSpa,
 };
