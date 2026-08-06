@@ -74,7 +74,7 @@
     color: var(--slate);
     margin: 40px 0 12px;
   }
-  
+
   /* Score gauge */
   .gauge-wrap {
     display: flex;
@@ -184,7 +184,7 @@
 
     <% const labels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
     <% const circumference = 339.292; const targetOffset = (circumference * (1 - result.final / 100)).toFixed(2); %>
-    <a class="back-link" href="/">&larr; Nouvel audit</a>
+
     <div class="gauge-wrap">
       <svg viewBox="0 0 120 120" class="gauge">
         <circle class="gauge-track" cx="60" cy="60" r="54" />
@@ -225,6 +225,24 @@
     <div class="not-measured ok">
       <strong>Note :</strong> Performance et Mobile/UX ont été mesurés via un échantillon de pages
       (Playwright) — détail dans la liste des problèmes ci-dessous.
+    </div>
+    <% } %>
+
+    <% if (result.crawlTimedOut) { %>
+    <div class="not-measured">
+      <strong>Note :</strong> le crawl a atteint sa limite de temps globale avant d'avoir exploré
+      toutes les pages découvertes — les résultats ci-dessous ne couvrent qu'une partie du site.
+      Relancez avec moins de pages ou un délai plus long si nécessaire.
+    </div>
+    <% } %>
+
+    <% if (result.possibleSpaPages && result.possibleSpaPages.length > 0) { %>
+    <div class="not-measured">
+      <strong>Note :</strong> <%= result.possibleSpaPages.length %> page(s) semblent être rendues
+      côté client (React/Vue/Angular) avec très peu de contenu dans le HTML brut — ce crawler
+      n'exécute pas de JavaScript, donc les problèmes de "contenu léger" ou de titres manquants sur
+      ces pages peuvent être un artefact du crawler plutôt qu'un vrai problème SEO. Pages concernées :
+      <code><%= result.possibleSpaPages.slice(0, 3).join(', ') %><%= result.possibleSpaPages.length > 3 ? '…' : '' %></code>
     </div>
     <% } %>
 
@@ -304,7 +322,10 @@
     </table>
     </div>
 
-    
+    <div class="actions-row">
+      <a class="back-link" href="/">&larr; Nouvel audit</a>
+      <button class="print-btn" onclick="window.print()">&#8681; Télécharger le rapport (PDF)</button>
+    </div>
   </main>
 
   <script>
