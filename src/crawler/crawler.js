@@ -17,7 +17,7 @@ class Crawler {
       timeoutMs = 10000,
       delayMs = 0,
       maxRedirects = 10,
-      crawlTimeoutMs = 60000,
+      crawlTimeoutMs = 15 * 60 * 1000,
       maxPageSizeBytes = 5 * 1024 * 1024,
     } = options;
 

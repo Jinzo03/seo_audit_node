@@ -102,7 +102,7 @@ app.post('/audit', async (req, res) => {
       console.warn('Could not load audit history:', err.message);
     }
 
-    res.render('results', { startUrl: crawler.startUrl, pages, result, history });
+    res.render('results', { startUrl: crawler.startUrl, pages, result, history, browserResults });
   } catch (err) {
     res.status(500).send(`Audit failed: ${err.message}`);
   }

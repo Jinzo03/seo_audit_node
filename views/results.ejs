@@ -111,6 +111,18 @@
 
   /* Sub-scores */
   .subscores { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .perf-pages { display: flex; flex-direction: column; gap: 10px; }
+  .perf-page-card { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 14px 16px; }
+  .perf-page-url { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); word-break: break-all; margin-bottom: 10px; }
+  .perf-metrics { display: flex; gap: 10px; flex-wrap: wrap; }
+  .metric-badge { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border-radius: 6px; padding: 8px 12px; min-width: 90px; }
+  .metric-badge .metric-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
+  .metric-badge .metric-value { font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
+  .metric-green { background: var(--pass-dim); color: var(--pass); }
+  .metric-yellow { background: var(--watch-dim); color: var(--watch); }
+  .metric-red { background: var(--fail-dim); color: var(--fail); }
+  .metric-unknown { background: var(--paper); color: var(--slate); }
   .subscore-card { flex: 1; min-width: 140px; background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 14px; }
   .subscore-card .label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
   .subscore-card .value { font-family: var(--font-mono); font-size: 21px; font-weight: 600; margin-top: 4px; }
@@ -163,40 +175,49 @@
   .filter-btn:hover { border-color: var(--signal); }
   .filter-btn.active { background: var(--ink); color: #fff; border-color: var(--ink); }
 
-  .back-link { display: inline-block; margin-top: 32px; font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-soft); text-decoration: none; }
-  .back-link:hover { color: var(--signal); }
+
+  .actions-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: var(--signal);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 20px;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(36, 83, 255, 0.15), 0 4px 12px rgba(36, 83, 255, 0.22);
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { background: #1c40d9; box-shadow: 0 2px 4px rgba(36, 83, 255, 0.2), 0 8px 20px rgba(36, 83, 255, 0.28); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   @media (max-width: 560px) {
     .gauge-wrap { flex-direction: column; align-items: flex-start; }
     .subscore-card { min-width: 45%; }
   }
-  .print-btn, .back-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    letter-spacing: 0.02em;
-    background: var(--signal);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 10px 18px;
-    cursor: pointer;
-  }
-  .print-btn:hover, .back-link:hover { background: var(--ink); }
-  .actions-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 32px;
-  }
-  .actions-row .back-link { margin-top: 0; }
-  .actions-row .print-btn { margin-top: 0; }
-  .actions-row .print-btn .arrow { font-size: 12px; }
 
-
-  
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { background-image: none; }
+    .topbar, .btn, .issue-filters, th.sortable::after { display: none !important; }
+    .table-wrap { overflow: visible; }
+    /* Show every issue row regardless of the on-screen severity filter —
+       a printed report should be complete, not reflect a leftover UI state. */
+    #issuesTable tbody tr { display: table-row !important; }
+    main { max-width: 100%; padding: 0; }
+    .gauge-wrap, .subscore-card, table { box-shadow: none; break-inside: avoid; }
+    h2 { break-after: avoid; }
+    tr { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -210,6 +231,7 @@
     <p class="subtitle"><%= startUrl %> — <%= pages.length %> page(s) crawlée(s)</p>
 
     <% const labels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
+    <% const severityLabels = { CRITICAL: 'Critique', WARNING: 'Avertissement', NOTICE: 'Remarque' }; %>
     <% const circumference = 339.292; const targetOffset = (circumference * (1 - result.final / 100)).toFixed(2); %>
 
     <div class="gauge-wrap">
@@ -240,6 +262,42 @@
         </div>
       <% } %>
     </div>
+
+    <% if (browserResults && Object.keys(browserResults).length > 0) {
+      const perfColor = (value, goodMax, mediumMax) => {
+        if (value === null || value === undefined) return 'unknown';
+        if (value <= goodMax) return 'green';
+        if (value <= mediumMax) return 'yellow';
+        return 'red';
+      };
+    %>
+    <h2>Indicateurs de performance (Core Web Vitals)</h2>
+    <div class="perf-pages">
+      <% for (const [pageUrl, m] of Object.entries(browserResults)) { %>
+        <div class="perf-page-card">
+          <div class="perf-page-url"><%= pageUrl %></div>
+          <div class="perf-metrics">
+            <div class="metric-badge metric-<%= perfColor(m.lcp, 2.5, 4) %>">
+              <span class="metric-label">LCP</span>
+              <span class="metric-value"><%= m.lcp !== null && m.lcp !== undefined ? m.lcp + 's' : '—' %></span>
+            </div>
+            <div class="metric-badge metric-<%= perfColor(m.ttfb, 300, 600) %>">
+              <span class="metric-label">TTFB</span>
+              <span class="metric-value"><%= m.ttfb !== null && m.ttfb !== undefined ? m.ttfb + 'ms' : '—' %></span>
+            </div>
+            <div class="metric-badge metric-<%= perfColor(m.cls, 0.1, 0.25) %>">
+              <span class="metric-label">CLS</span>
+              <span class="metric-value"><%= m.cls !== null && m.cls !== undefined ? m.cls : '—' %></span>
+            </div>
+            <div class="metric-badge metric-<%= perfColor(m.inp, 200, 500) %>">
+              <span class="metric-label">INP</span>
+              <span class="metric-value"><%= m.inp !== null && m.inp !== undefined ? m.inp + 'ms' : '—' %></span>
+            </div>
+          </div>
+        </div>
+      <% } %>
+    </div>
+    <% } %>
 
     <% if (result.notYetMeasured.includes('lcp')) { %>
     <div class="not-measured">
@@ -291,7 +349,7 @@
     <svg viewBox="0 0 <%= w %> <%= h %>" class="sparkline" preserveAspectRatio="none">
       <polyline points="<%= points %>" fill="none" stroke="#2453ff" stroke-width="2" vector-effect="non-scaling-stroke" />
       <% coords.forEach((c) => { %>
-        <circle cx="<%= c.x %>" cy="<%= c.y %>" r="3" fill="#2453ff"><title><%= c.score %></title></circle>
+        <circle cx="<%= c.x %>" cy="<%= c.y %>" r="6" fill="#2453ff" stroke="#ffffff" stroke-width="2"><title><%= c.score %></title></circle>
       <% }) %>
     </svg>
     <div class="table-wrap">
@@ -316,9 +374,9 @@
        result.issues.forEach((i) => { counts[i.severity] = (counts[i.severity] || 0) + 1; }); %>
     <div class="issue-filters">
       <button class="filter-btn active" data-severity="ALL">Tous · <%= result.issues.length %></button>
-      <button class="filter-btn" data-severity="CRITICAL">Critical · <%= counts.CRITICAL %></button>
-      <button class="filter-btn" data-severity="WARNING">Warning · <%= counts.WARNING %></button>
-      <button class="filter-btn" data-severity="NOTICE">Notice · <%= counts.NOTICE %></button>
+      <button class="filter-btn" data-severity="CRITICAL">Critique · <%= counts.CRITICAL %></button>
+      <button class="filter-btn" data-severity="WARNING">Avertissement · <%= counts.WARNING %></button>
+      <button class="filter-btn" data-severity="NOTICE">Remarque · <%= counts.NOTICE %></button>
     </div>
 
     <div class="table-wrap">
@@ -340,7 +398,7 @@
             data-text="<%= issue.text.replace(/"/g, '&quot;') %>"
           >
             <td><%= labels[issue.category] || issue.category %></td>
-            <td class="sev-<%= issue.severity %>"><%= issue.severity %></td>
+            <td class="sev-<%= issue.severity %>"><%= severityLabels[issue.severity] || issue.severity %></td>
             <td><%= issue.points %></td>
             <td><%= issue.text %></td>
           </tr>
@@ -350,8 +408,8 @@
     </div>
 
     <div class="actions-row">
-      <a class="back-link" href="/">&larr; Nouvel audit</a>
-      <button class="print-btn" onclick="window.print()">&#8681; Télécharger le rapport (PDF)</button>
+      <a class="btn" href="/">&larr; Nouvel audit</a>
+      <button class="btn" onclick="window.print()">&#8681; Télécharger le rapport (PDF)</button>
     </div>
   </main>
 
