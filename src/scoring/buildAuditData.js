@@ -212,6 +212,69 @@ function average(numbers) {
   return numbers.reduce((sum, n) => sum + n, 0) / numbers.length;
 }
 
+// For crawlability/technical checks (computed once, site-wide, not per
+// page), work out which crawled pages are actually affected by re-deriving
+// from the same conditions that trigger each penalty in auditScoring.js.
+// Returns null for checks that are genuinely site-wide (a site has one
+// robots.txt, one SSL certificate) rather than tied to specific pages.
+function affectedPagesForCode(code, pages, htmlPages, startUrl) {
+  const homepage = pages.find((p) => p.url === startUrl || p.url === `${startUrl}/`) || pages[0];
+
+  switch (code) {
+    case 'missing_canonical':
+      return pages.filter((p) => p.statusCode && p.statusCode < 400 && !p.canonical).map((p) => p.url);
+    case 'homepage_noindex':
+      return homepage ? [homepage.url] : [];
+    case 'errors_404':
+      return pages.filter((p) => p.statusCode === 404).map((p) => p.url);
+    case 'errors_5xx':
+      return pages.filter((p) => p.statusCode && p.statusCode >= 500).map((p) => p.url);
+    case 'redirect_chains':
+      return pages.filter((p) => (p.redirectHops || 0) > 1).map((p) => p.url);
+    case 'redirect_loops':
+      return pages.filter((p) => p.redirectLoopDetected).map((p) => p.url);
+    case 'mixed_content':
+      return pages.filter((p) => p.mixedContent).map((p) => p.url);
+    case 'hsts_missing':
+    case 'security_headers_missing': {
+      const first = htmlPages[0];
+      return first ? [first.url] : [];
+    }
+    // Genuinely site-wide — not meaningful to attribute to specific pages.
+    case 'no_robots':
+    case 'no_sitemap':
+    case 'disallow_all':
+    case 'robots_oversized':
+    case 'blocked_resources':
+    case 'hreflang_misconfigured':
+    case 'ssl_invalid':
+    default:
+      return null;
+  }
+}
+
+// Groups a flat list of { pageUrl, ...issue } entries by issue `code`,
+// merging duplicates (the same problem on multiple pages) into one entry
+// with a combined list of affected page URLs — this is what the category
+// drill-down page renders, instead of one row per page per issue.
+function groupIssuesByCode(issuesWithUrls) {
+  const byCode = new Map();
+  for (const issue of issuesWithUrls) {
+    if (!byCode.has(issue.code)) {
+      byCode.set(issue.code, {
+        code: issue.code,
+        text: issue.text,
+        severity: issue.severity,
+        points: issue.points,
+        pages: [],
+      });
+    }
+    const entry = byCode.get(issue.code);
+    if (issue.pageUrl && !entry.pages.includes(issue.pageUrl)) entry.pages.push(issue.pageUrl);
+  }
+  return Array.from(byCode.values()).sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
+}
+
 /**
  * Compute one whole-site score from crawl results.
  * `pages` and `sitemapResult` come straight from Crawler#crawl() /
@@ -237,10 +300,11 @@ function scoreSite({
 
   const onPageScores = htmlPages.map((p) => {
     const data = buildOnPageDataForPage(p, titleCounts, descriptionCounts);
-    if (data === htmlPages[0] && duplicateContentPageCount > 0) {
+    if (p === htmlPages[0] && duplicateContentPageCount > 0) {
       data.duplicateContentPages = duplicateContentPageCount;
     }
-    return new AuditScoring(data).scoreOnPage();
+    const scored = new AuditScoring(data).scoreOnPage();
+    return { ...scored, pageUrl: p.url };
   });
 
   // Mobile is averaged across ALL crawled pages, same as before — pages
@@ -250,16 +314,19 @@ function scoreSite({
   // more signal for the pages that were sampled.
   const mobileScores = htmlPages.map((p) => {
     const browserResult = browserResultsMap.get(p.url);
-    return new AuditScoring(buildMobileDataForPage(p, browserResult)).scoreMobile();
+    const scored = new AuditScoring(buildMobileDataForPage(p, browserResult)).scoreMobile();
+    return { ...scored, pageUrl: p.url };
   });
 
   // Performance, unlike Mobile, has NO cheap fallback — there's no
   // meaningful "performance score" without browser data, so it's averaged
   // only over pages that were actually sampled, not all crawled pages.
   const performanceScores = htmlPages
-    .map((p) => browserResultsMap.get(p.url))
-    .filter(Boolean)
-    .map((browserResult) => new AuditScoring(buildPerformanceDataForPage(browserResult)).scorePerformance());
+    .filter((p) => browserResultsMap.has(p.url))
+    .map((p) => {
+      const scored = new AuditScoring(buildPerformanceDataForPage(browserResultsMap.get(p.url))).scorePerformance();
+      return { ...scored, pageUrl: p.url };
+    });
 
   const crawlability = new AuditScoring(crawlabilityData).scoreCrawlability();
   const technical = new AuditScoring(technicalData).scoreTechnical();
@@ -284,6 +351,25 @@ function scoreSite({
 
   const categories = { crawlability, technical, performance, onPage, mobile };
 
+  // Category drill-down data: for on-page/mobile/performance, issues are
+  // already tied to a pageUrl per page; for crawlability/technical (computed
+  // once, site-wide), affected pages are re-derived by code. Uses the FULL,
+  // unsliced per-page issue lists — the top-10 cap above is a display limit
+  // for the main table, not a limit on what the drill-down page can show.
+  const categoryDetails = {
+    crawlability: groupIssuesByCode(
+      crawlability.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, pages, htmlPages, startUrl) }))
+        .flatMap((issue) => (issue.pages === null ? [{ ...issue, pageUrl: null }] : issue.pages.map((url) => ({ ...issue, pageUrl: url })))),
+    ),
+    technical: groupIssuesByCode(
+      technical.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, pages, htmlPages, startUrl) }))
+        .flatMap((issue) => (issue.pages === null ? [{ ...issue, pageUrl: null }] : issue.pages.map((url) => ({ ...issue, pageUrl: url })))),
+    ),
+    performance: groupIssuesByCode(performanceScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
+    onPage: groupIssuesByCode(onPageScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
+    mobile: groupIssuesByCode(mobileScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
+  };
+
   const percentages = {};
   let final = 0;
   for (const key of Object.keys(categories)) {
@@ -305,6 +391,7 @@ function scoreSite({
     categories,
     percentages,
     issues: allIssues,
+    categoryDetails,
     notYetMeasured: performanceScores.length > 0
       ? ALWAYS_NOT_YET_MEASURED
       : [...ALWAYS_NOT_YET_MEASURED, ...BROWSER_ONLY_FIELDS],
