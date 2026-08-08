@@ -303,3 +303,100 @@ describe('scoreSite with browser (Playwright) results', () => {
     assert.equal(result.categories.mobile.points, 10 - 3); // missing viewport, from the static check
   });
 });
+
+describe('categoryDetails (drill-down data)', () => {
+  test('an on-page issue shared by multiple pages is grouped into one entry with both page URLs', () => {
+    const pages = [
+      fakePage({ url: 'https://site.com/a', title: null }),
+      fakePage({ url: 'https://site.com/b', title: null }),
+    ];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com/a',
+    });
+    const entry = result.categoryDetails.onPage.find((i) => i.code === 'title_missing');
+    assert.ok(entry, 'expected a title_missing entry');
+    assert.deepEqual(entry.pages.sort(), ['https://site.com/a', 'https://site.com/b']);
+  });
+
+  test('an on-page issue affecting only one page lists only that page', () => {
+    const pages = [
+      fakePage({ url: 'https://site.com/a' }),
+      fakePage({ url: 'https://site.com/b', title: null }),
+    ];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com/a',
+    });
+    const entry = result.categoryDetails.onPage.find((i) => i.code === 'title_missing');
+    assert.deepEqual(entry.pages, ['https://site.com/b']);
+  });
+
+  test('a page-specific crawlability issue (missing canonical) lists the affected pages', () => {
+    const pages = [
+      fakePage({ url: 'https://site.com/a', canonical: null }),
+      fakePage({ url: 'https://site.com/b' }),
+    ];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com/a',
+    });
+    const entry = result.categoryDetails.crawlability.find((i) => i.code === 'missing_canonical');
+    assert.deepEqual(entry.pages, ['https://site.com/a']);
+  });
+
+  test('a genuinely site-wide crawlability issue (no sitemap) has an empty pages list, not a crash', () => {
+    const pages = [fakePage({ url: 'https://site.com' })];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: false },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com',
+    });
+    const entry = result.categoryDetails.crawlability.find((i) => i.code === 'no_sitemap');
+    assert.ok(entry);
+    assert.deepEqual(entry.pages, []);
+  });
+
+  test('a technical issue (404s) lists exactly the broken pages', () => {
+    const pages = [
+      fakePage({ url: 'https://site.com' }),
+      { url: 'https://site.com/missing1', statusCode: 404, title: undefined },
+      { url: 'https://site.com/missing2', statusCode: 404, title: undefined },
+      { url: 'https://site.com/missing3', statusCode: 404, title: undefined },
+      { url: 'https://site.com/missing4', statusCode: 404, title: undefined },
+      { url: 'https://site.com/missing5', statusCode: 404, title: undefined },
+    ];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com',
+    });
+    const entry = result.categoryDetails.technical.find((i) => i.code === 'errors_404');
+    assert.ok(entry, 'expected an errors_404 entry (5 404s should trigger the >=5 penalty threshold)');
+    assert.deepEqual(
+      entry.pages.sort(),
+      ['https://site.com/missing1', 'https://site.com/missing2', 'https://site.com/missing3', 'https://site.com/missing4', 'https://site.com/missing5'],
+    );
+  });
+
+  test('categoryDetails has an (empty) array for every category even when there are no issues at all', () => {
+    const pages = [fakePage({ url: 'https://site.com' })];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com',
+    });
+    for (const key of ['crawlability', 'technical', 'performance', 'onPage', 'mobile']) {
+      assert.ok(Array.isArray(result.categoryDetails[key]), `expected an array for ${key}`);
+    }
+  });
+});

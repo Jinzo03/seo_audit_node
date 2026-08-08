@@ -11,6 +11,12 @@
  *   - Mobile scoring does NOT re-penalize CLS >0.1, per the spec's own note
  *     that it's "déjà compté en performance" (already counted there).
  *
+ * Every issue carries a stable `code` (e.g. 'missing_canonical') alongside
+ * its human-readable `text`. `text` can embed dynamic values (a count, a
+ * percentage) and isn't safe to match against; `code` is what
+ * buildAuditData.js uses to work out which crawled pages a given issue
+ * actually applies to, for the category drill-down page.
+ *
  * This module only computes a score from already-collected data — it does
  * not crawl or measure anything itself, so it's fully unit-testable with
  * synthetic input and has no dependency on the crawler.
@@ -45,19 +51,19 @@ class AuditScoring {
     let score = 30;
     const issues = [];
 
-    const deduct = (points, text, severity) => {
+    const deduct = (points, text, severity, code) => {
       score -= points;
-      issues.push({ text, points: -points, severity });
+      issues.push({ text, points: -points, severity, code });
     };
 
-    if (!d.robotsTxtPresent) deduct(5, 'robots.txt absent ou mal configuré', 'WARNING');
-    if (!d.sitemapPresent) deduct(3, 'sitemap.xml absent', 'WARNING');
-    if (d.blockedCriticalResources) deduct(8, 'Blocage de fichiers CSS/JS importants', 'WARNING');
-    if (d.robotsTxtOversized) deduct(2, 'Fichier robots.txt de taille excessive', 'NOTICE');
-    if (d.homepageNoindex) deduct(15, "No-index sur la page d'accueil", 'CRITICAL');
-    if (d.disallowAll) deduct(25, 'robots.txt bloque tout le site (Disallow: /)', 'CRITICAL');
-    if (d.hreflangMisconfigured) deduct(4, 'Hreflang mal configuré', 'WARNING');
-    if (d.pagesMissingCanonical > 0) deduct(3, 'Canonical tag manquant sur certaines pages', 'WARNING');
+    if (!d.robotsTxtPresent) deduct(5, 'robots.txt absent ou mal configuré', 'WARNING', 'no_robots');
+    if (!d.sitemapPresent) deduct(3, 'sitemap.xml absent', 'WARNING', 'no_sitemap');
+    if (d.blockedCriticalResources) deduct(8, 'Blocage de fichiers CSS/JS importants', 'WARNING', 'blocked_resources');
+    if (d.robotsTxtOversized) deduct(2, 'Fichier robots.txt de taille excessive', 'NOTICE', 'robots_oversized');
+    if (d.homepageNoindex) deduct(15, "No-index sur la page d'accueil", 'CRITICAL', 'homepage_noindex');
+    if (d.disallowAll) deduct(25, 'robots.txt bloque tout le site (Disallow: /)', 'CRITICAL', 'disallow_all');
+    if (d.hreflangMisconfigured) deduct(4, 'Hreflang mal configuré', 'WARNING', 'hreflang_misconfigured');
+    if (d.pagesMissingCanonical > 0) deduct(3, 'Canonical tag manquant sur certaines pages', 'WARNING', 'missing_canonical');
 
     return { points: Math.max(0, score), max: MAX_POINTS.crawlability, issues };
   }
@@ -71,19 +77,19 @@ class AuditScoring {
     const issues = [];
 
     const p404 = Math.min(8, Math.floor((d.errors404Count || 0) / 5));
-    if (p404 > 0) { score -= p404; issues.push({ text: `${d.errors404Count} page(s) en erreur 404`, points: -p404, severity: 'WARNING' }); }
+    if (p404 > 0) { score -= p404; issues.push({ text: `${d.errors404Count} page(s) en erreur 404`, points: -p404, severity: 'WARNING', code: 'errors_404' }); }
 
     const p5xx = Math.min(10, (d.errors5xxCount || 0) * 2);
-    if (p5xx > 0) { score -= p5xx; issues.push({ text: `${d.errors5xxCount} page(s) en erreur 5xx`, points: -p5xx, severity: 'WARNING' }); }
+    if (p5xx > 0) { score -= p5xx; issues.push({ text: `${d.errors5xxCount} page(s) en erreur 5xx`, points: -p5xx, severity: 'WARNING', code: 'errors_5xx' }); }
 
     const pRedirects = Math.min(6, (d.redirectChainsCount || 0) * 3);
-    if (pRedirects > 0) { score -= pRedirects; issues.push({ text: `${d.redirectChainsCount} redirect(s) chaîné(s) (>1 hop)`, points: -pRedirects, severity: 'WARNING' }); }
+    if (pRedirects > 0) { score -= pRedirects; issues.push({ text: `${d.redirectChainsCount} redirect(s) chaîné(s) (>1 hop)`, points: -pRedirects, severity: 'WARNING', code: 'redirect_chains' }); }
 
-    if (d.redirectLoopsDetected) { score -= 10; issues.push({ text: 'Boucle(s) de redirection détectée(s)', points: -10, severity: 'CRITICAL' }); }
-    if (d.mixedContent) { score -= 5; issues.push({ text: 'Contenu mixte (HTTPS + HTTP)', points: -5, severity: 'WARNING' }); }
-    if (d.sslInvalid) { score -= 15; issues.push({ text: 'Certificat SSL invalide ou expiré', points: -15, severity: 'CRITICAL' }); }
-    if (!d.hstsPresent) { score -= 2; issues.push({ text: 'Header HSTS manquant', points: -2, severity: 'NOTICE' }); }
-    if (!d.securityHeadersPresent) { score -= 3; issues.push({ text: 'Security headers absents (CSP, X-Frame-Options, etc.)', points: -3, severity: 'NOTICE' }); }
+    if (d.redirectLoopsDetected) { score -= 10; issues.push({ text: 'Boucle(s) de redirection détectée(s)', points: -10, severity: 'CRITICAL', code: 'redirect_loops' }); }
+    if (d.mixedContent) { score -= 5; issues.push({ text: 'Contenu mixte (HTTPS + HTTP)', points: -5, severity: 'WARNING', code: 'mixed_content' }); }
+    if (d.sslInvalid) { score -= 15; issues.push({ text: 'Certificat SSL invalide ou expiré', points: -15, severity: 'CRITICAL', code: 'ssl_invalid' }); }
+    if (!d.hstsPresent) { score -= 2; issues.push({ text: 'Header HSTS manquant', points: -2, severity: 'NOTICE', code: 'hsts_missing' }); }
+    if (!d.securityHeadersPresent) { score -= 3; issues.push({ text: 'Security headers absents (CSP, X-Frame-Options, etc.)', points: -3, severity: 'NOTICE', code: 'security_headers_missing' }); }
 
     return { points: Math.max(0, score), max: MAX_POINTS.technical, issues };
   }
@@ -97,30 +103,30 @@ class AuditScoring {
     const issues = [];
 
     if (d.lcp !== undefined) {
-      if (d.lcp > 4) { score -= 5; issues.push({ text: `LCP élevé (${d.lcp}s)`, points: -5, severity: 'WARNING' }); }
-      else if (d.lcp >= 2.5) { score -= 2; issues.push({ text: `LCP moyen (${d.lcp}s)`, points: -2, severity: 'NOTICE' }); }
+      if (d.lcp > 4) { score -= 5; issues.push({ text: `LCP élevé (${d.lcp}s)`, points: -5, severity: 'WARNING', code: 'lcp_high' }); }
+      else if (d.lcp >= 2.5) { score -= 2; issues.push({ text: `LCP moyen (${d.lcp}s)`, points: -2, severity: 'NOTICE', code: 'lcp_moderate' }); }
     }
 
     // FID -> INP: Google's Core Web Vitals replacement (March 2024). Prefer
     // inp when present; fall back to the spec's literal fid field otherwise.
     if (d.inp !== undefined) {
-      if (d.inp > 200) { score -= 3; issues.push({ text: `INP élevé (${d.inp}ms)`, points: -3, severity: 'WARNING' }); }
+      if (d.inp > 200) { score -= 3; issues.push({ text: `INP élevé (${d.inp}ms)`, points: -3, severity: 'WARNING', code: 'inp_high' }); }
     } else if (d.fid !== undefined) {
-      if (d.fid > 100) { score -= 3; issues.push({ text: `FID élevé (${d.fid}ms)`, points: -3, severity: 'WARNING' }); }
+      if (d.fid > 100) { score -= 3; issues.push({ text: `FID élevé (${d.fid}ms)`, points: -3, severity: 'WARNING', code: 'fid_high' }); }
     }
 
     if (d.cls !== undefined && d.cls > 0.1) {
-      score -= 3; issues.push({ text: `CLS élevé (${d.cls})`, points: -3, severity: 'WARNING' });
+      score -= 3; issues.push({ text: `CLS élevé (${d.cls})`, points: -3, severity: 'WARNING', code: 'cls_high' });
     }
 
     if (d.ttfb !== undefined) {
-      if (d.ttfb > 600) { score -= 4; issues.push({ text: `TTFB élevé (${d.ttfb}ms)`, points: -4, severity: 'WARNING' }); }
-      else if (d.ttfb >= 300) { score -= 2; issues.push({ text: `TTFB moyen (${d.ttfb}ms)`, points: -2, severity: 'NOTICE' }); }
+      if (d.ttfb > 600) { score -= 4; issues.push({ text: `TTFB élevé (${d.ttfb}ms)`, points: -4, severity: 'WARNING', code: 'ttfb_high' }); }
+      else if (d.ttfb >= 300) { score -= 2; issues.push({ text: `TTFB moyen (${d.ttfb}ms)`, points: -2, severity: 'NOTICE', code: 'ttfb_moderate' }); }
     }
 
-    if (d.imagesUnoptimized) { score -= 2; issues.push({ text: 'Images non optimisées', points: -2, severity: 'NOTICE' }); }
-    if (!d.gzipEnabled) { score -= 3; issues.push({ text: 'Compression gzip absente', points: -3, severity: 'WARNING' }); }
-    if (!d.browserCacheEnabled) { score -= 2; issues.push({ text: 'Cache navigateur absent', points: -2, severity: 'NOTICE' }); }
+    if (d.imagesUnoptimized) { score -= 2; issues.push({ text: 'Images non optimisées', points: -2, severity: 'NOTICE', code: 'images_unoptimized' }); }
+    if (!d.gzipEnabled) { score -= 3; issues.push({ text: 'Compression gzip absente', points: -3, severity: 'WARNING', code: 'gzip_missing' }); }
+    if (!d.browserCacheEnabled) { score -= 2; issues.push({ text: 'Cache navigateur absent', points: -2, severity: 'NOTICE', code: 'cache_missing' }); }
 
     return { points: Math.max(0, score), max: MAX_POINTS.performance, issues };
   }
@@ -134,46 +140,46 @@ class AuditScoring {
     const issues = [];
 
     if (!d.metaTitlePresent) {
-      score -= 2; issues.push({ text: 'Meta title absent', points: -2, severity: 'WARNING' });
+      score -= 2; issues.push({ text: 'Meta title absent', points: -2, severity: 'WARNING', code: 'title_missing' });
     } else if (d.metaTitleLength !== undefined && (d.metaTitleLength < 30 || d.metaTitleLength > 60)) {
-      score -= 1; issues.push({ text: `Longueur du meta title non idéale (${d.metaTitleLength} caractères)`, points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: `Longueur du meta title non idéale (${d.metaTitleLength} caractères)`, points: -1, severity: 'NOTICE', code: 'title_length' });
     }
-    if (d.metaTitleDuplicate) { score -= 1; issues.push({ text: 'Meta title dupliqué sur le site', points: -1, severity: 'NOTICE' }); }
+    if (d.metaTitleDuplicate) { score -= 1; issues.push({ text: 'Meta title dupliqué sur le site', points: -1, severity: 'NOTICE', code: 'title_duplicate' }); }
 
     if (!d.metaDescriptionPresent) {
-      score -= 2; issues.push({ text: 'Meta description absente', points: -2, severity: 'WARNING' });
+      score -= 2; issues.push({ text: 'Meta description absente', points: -2, severity: 'WARNING', code: 'description_missing' });
     } else if (d.metaDescriptionLength !== undefined && (d.metaDescriptionLength < 120 || d.metaDescriptionLength > 160)) {
-      score -= 1; issues.push({ text: `Longueur de la meta description non idéale (${d.metaDescriptionLength} caractères)`, points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: `Longueur de la meta description non idéale (${d.metaDescriptionLength} caractères)`, points: -1, severity: 'NOTICE', code: 'description_length' });
     }
-    if (d.metaDescriptionDuplicate) { score -= 1; issues.push({ text: 'Meta description dupliquée sur le site', points: -1, severity: 'NOTICE' }); }
+    if (d.metaDescriptionDuplicate) { score -= 1; issues.push({ text: 'Meta description dupliquée sur le site', points: -1, severity: 'NOTICE', code: 'description_duplicate' }); }
 
     if (!d.h1Present || (d.h1Count !== undefined && d.h1Count > 1)) {
-      score -= 2; issues.push({ text: 'H1 absent ou multiple', points: -2, severity: 'WARNING' });
+      score -= 2; issues.push({ text: 'H1 absent ou multiple', points: -2, severity: 'WARNING', code: 'h1_missing_or_multiple' });
     } else if (d.h1Length !== undefined && (d.h1Length < 30 || d.h1Length > 65)) {
-      score -= 1; issues.push({ text: `Longueur du H1 non idéale (${d.h1Length} caractères)`, points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: `Longueur du H1 non idéale (${d.h1Length} caractères)`, points: -1, severity: 'NOTICE', code: 'h1_length' });
     }
 
-    if (d.brokenHeadingHierarchy) { score -= 1; issues.push({ text: 'Hiérarchie de titres cassée (H1 → H3 sans H2)', points: -1, severity: 'NOTICE' }); }
-    if (d.tooManyH1) { score -= 1; issues.push({ text: 'Trop de H1 sur la page', points: -1, severity: 'NOTICE' }); }
+    if (d.brokenHeadingHierarchy) { score -= 1; issues.push({ text: 'Hiérarchie de titres cassée (H1 → H3 sans H2)', points: -1, severity: 'NOTICE', code: 'heading_hierarchy_broken' }); }
+    if (d.tooManyH1) { score -= 1; issues.push({ text: 'Trop de H1 sur la page', points: -1, severity: 'NOTICE', code: 'too_many_h1' }); }
 
     if (d.altTextMissingPercent !== undefined) {
-      if (d.altTextMissingPercent > 50) { score -= 2; issues.push({ text: `${d.altTextMissingPercent}% des images sans alt text`, points: -2, severity: 'WARNING' }); }
-      else if (d.altTextMissingPercent >= 25) { score -= 1; issues.push({ text: `${d.altTextMissingPercent}% des images sans alt text`, points: -1, severity: 'NOTICE' }); }
+      if (d.altTextMissingPercent > 50) { score -= 2; issues.push({ text: `${d.altTextMissingPercent}% des images sans alt text`, points: -2, severity: 'WARNING', code: 'alt_text_missing' }); }
+      else if (d.altTextMissingPercent >= 25) { score -= 1; issues.push({ text: `${d.altTextMissingPercent}% des images sans alt text`, points: -1, severity: 'NOTICE', code: 'alt_text_missing' }); }
     }
 
     if (d.duplicateContentPages > 0) {
       const penalty = d.duplicateContentPages * 2;
       score -= penalty;
-      issues.push({ text: `${d.duplicateContentPages} page(s) avec >50% de contenu dupliqué`, points: -penalty, severity: 'WARNING' });
+      issues.push({ text: `${d.duplicateContentPages} page(s) avec >50% de contenu dupliqué`, points: -penalty, severity: 'WARNING', code: 'duplicate_content' });
     }
     if (d.boilerplatePercent !== undefined && d.boilerplatePercent > 30) {
-      score -= 1; issues.push({ text: `Texte boilerplate élevé (${d.boilerplatePercent}%)`, points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: `Texte boilerplate élevé (${d.boilerplatePercent}%)`, points: -1, severity: 'NOTICE', code: 'boilerplate_high' });
     }
 
     if (!d.structuredDataPresent) {
-      score -= 1; issues.push({ text: 'Structured data absent', points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: 'Structured data absent', points: -1, severity: 'NOTICE', code: 'structured_data_missing' });
     } else if (d.structuredDataErrors) {
-      score -= 1; issues.push({ text: 'Erreurs dans le balisage JSON-LD', points: -1, severity: 'NOTICE' });
+      score -= 1; issues.push({ text: 'Erreurs dans le balisage JSON-LD', points: -1, severity: 'NOTICE', code: 'structured_data_errors' });
     }
 
     return { points: Math.max(0, score), max: MAX_POINTS.onPage, issues };
@@ -187,13 +193,13 @@ class AuditScoring {
     let score = 10;
     const issues = [];
 
-    if (!d.viewportPresent) { score -= 3; issues.push({ text: 'Viewport meta tag absent', points: -3, severity: 'WARNING' }); }
-    if (d.mobileFriendly === false) { score -= 4; issues.push({ text: 'Mise en page non mobile-friendly', points: -4, severity: 'WARNING' }); }
-    if (d.touchableElementsTooSmall) { score -= 2; issues.push({ text: 'Boutons/liens trop petits (<48px)', points: -2, severity: 'NOTICE' }); }
-    if (d.fontTooSmall) { score -= 1; issues.push({ text: 'Police trop petite (<12px)', points: -1, severity: 'NOTICE' }); }
-    if (d.lineHeightTooTight) { score -= 1; issues.push({ text: 'Interligne trop serré', points: -1, severity: 'NOTICE' }); }
+    if (!d.viewportPresent) { score -= 3; issues.push({ text: 'Viewport meta tag absent', points: -3, severity: 'WARNING', code: 'viewport_missing' }); }
+    if (d.mobileFriendly === false) { score -= 4; issues.push({ text: 'Mise en page non mobile-friendly', points: -4, severity: 'WARNING', code: 'not_mobile_friendly' }); }
+    if (d.touchableElementsTooSmall) { score -= 2; issues.push({ text: 'Boutons/liens trop petits (<48px)', points: -2, severity: 'NOTICE', code: 'tap_targets_small' }); }
+    if (d.fontTooSmall) { score -= 1; issues.push({ text: 'Police trop petite (<12px)', points: -1, severity: 'NOTICE', code: 'font_too_small' }); }
+    if (d.lineHeightTooTight) { score -= 1; issues.push({ text: 'Interligne trop serré', points: -1, severity: 'NOTICE', code: 'line_height_tight' }); }
     // CLS deliberately not re-penalized here — spec marks it "déjà compté en performance".
-    if (d.intrusivePopups) { score -= 2; issues.push({ text: 'Popup intrusif au chargement', points: -2, severity: 'NOTICE' }); }
+    if (d.intrusivePopups) { score -= 2; issues.push({ text: 'Popup intrusif au chargement', points: -2, severity: 'NOTICE', code: 'intrusive_popups' }); }
 
     return { points: Math.max(0, score), max: MAX_POINTS.mobile, issues };
   }

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { initDb, saveAuditRun, getAuditHistory, domainFromUrl } = require('../src/storage/db');
+const { initDb, saveAuditRun, getAuditHistory, getAuditById, domainFromUrl } = require('../src/storage/db');
 
 function fakeScoreResult(overrides = {}) {
   return {
@@ -78,5 +78,37 @@ describe('storage/db', () => {
     const db2 = initDb(dbPath);
     assert.doesNotThrow(() => db2.prepare('SELECT 1').get());
     db2.close();
+  });
+
+  test('saveAuditRun returns the inserted row id', () => {
+    const result = saveAuditRun(db, {
+      startUrl: 'https://id-test.com',
+      pagesCrawled: 2,
+      scoreResult: fakeScoreResult(),
+    });
+    assert.equal(typeof result.id, 'number');
+    assert.ok(result.id > 0);
+  });
+
+  test('getAuditById round-trips categoryDetails through JSON correctly', () => {
+    const scoreResult = fakeScoreResult({
+      categoryDetails: {
+        onPage: [{ code: 'title_missing', text: 'Meta title absent', severity: 'WARNING', points: -2, pages: ['https://round-trip.com/a'] }],
+      },
+    });
+    const { id } = saveAuditRun(db, { startUrl: 'https://round-trip.com', pagesCrawled: 1, scoreResult });
+    const loaded = getAuditById(db, id);
+    assert.equal(loaded.categoryDetails.onPage[0].code, 'title_missing');
+    assert.deepEqual(loaded.categoryDetails.onPage[0].pages, ['https://round-trip.com/a']);
+  });
+
+  test('getAuditById returns null for a non-existent id', () => {
+    assert.equal(getAuditById(db, 999999), null);
+  });
+
+  test('saving a run without categoryDetails does not throw (defensive default)', () => {
+    const scoreResult = fakeScoreResult();
+    delete scoreResult.categoryDetails;
+    assert.doesNotThrow(() => saveAuditRun(db, { startUrl: 'https://no-details.com', pagesCrawled: 1, scoreResult }));
   });
 });

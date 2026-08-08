@@ -29,10 +29,20 @@ function initDb(dbPath = DEFAULT_DB_PATH) {
       pct_onpage REAL NOT NULL,
       pct_mobile REAL NOT NULL,
       pages_crawled INTEGER NOT NULL,
-      total_issues INTEGER NOT NULL
+      total_issues INTEGER NOT NULL,
+      details_json TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_audits_domain_time ON audits (domain, run_at);
   `);
+
+  // Defensive upgrade path for a local audits.db created before details_json
+  // existed — SQLite has no "ADD COLUMN IF NOT EXISTS", so just try and
+  // ignore the error if the column is already there.
+  try {
+    db.exec('ALTER TABLE audits ADD COLUMN details_json TEXT');
+  } catch (err) {
+    // column already exists — fine
+  }
 
   return db;
 }
@@ -47,20 +57,21 @@ function domainFromUrl(url) {
 
 /**
  * Persists one audit run. `scoreResult` is scoreSite()'s return value;
- * `pagesCrawled` and `startUrl` come from the crawl itself.
+ * `pagesCrawled` and `startUrl` come from the crawl itself. Returns the
+ * inserted row's id, used to build the category drill-down URL.
  */
 function saveAuditRun(db, { startUrl, pagesCrawled, scoreResult, runAt = Date.now() }) {
   const stmt = db.prepare(`
     INSERT INTO audits (
       domain, start_url, run_at, final_score, tier_level,
       pct_crawlability, pct_technical, pct_performance, pct_onpage, pct_mobile,
-      pages_crawled, total_issues
+      pages_crawled, total_issues, details_json
     ) VALUES (@domain, @startUrl, @runAt, @finalScore, @tierLevel,
       @pctCrawlability, @pctTechnical, @pctPerformance, @pctOnpage, @pctMobile,
-      @pagesCrawled, @totalIssues)
+      @pagesCrawled, @totalIssues, @detailsJson)
   `);
 
-  return stmt.run({
+  const info = stmt.run({
     domain: domainFromUrl(startUrl),
     startUrl,
     runAt,
@@ -73,7 +84,29 @@ function saveAuditRun(db, { startUrl, pagesCrawled, scoreResult, runAt = Date.no
     pctMobile: scoreResult.percentages.mobile,
     pagesCrawled,
     totalIssues: scoreResult.issues.length,
+    detailsJson: JSON.stringify({ categoryDetails: scoreResult.categoryDetails || {} }),
   });
+
+  return { ...info, id: info.lastInsertRowid };
+}
+
+/**
+ * Loads one audit run by id, with categoryDetails parsed back out of JSON.
+ * Returns null if the id doesn't exist. Used by the category drill-down
+ * route to render the list of affected pages for a given category.
+ */
+function getAuditById(db, id) {
+  const row = db.prepare('SELECT * FROM audits WHERE id = ?').get(id);
+  if (!row) return null;
+
+  let categoryDetails = {};
+  try {
+    categoryDetails = JSON.parse(row.details_json || '{}').categoryDetails || {};
+  } catch (err) {
+    categoryDetails = {};
+  }
+
+  return { ...row, categoryDetails };
 }
 
 /**
@@ -88,4 +121,4 @@ function getAuditHistory(db, startUrl, limit = 12) {
   return stmt.all({ domain, limit });
 }
 
-module.exports = { initDb, saveAuditRun, getAuditHistory, domainFromUrl, DEFAULT_DB_PATH };
+module.exports = { initDb, saveAuditRun, getAuditHistory, getAuditById, domainFromUrl, DEFAULT_DB_PATH };
