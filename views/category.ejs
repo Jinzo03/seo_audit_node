@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= categoryKey %> — <%= audit.start_url %></title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #12151a; --ink-soft: #3d4451; --slate: #6b7280;
+    --paper: #f3f5f4; --paper-raised: #ffffff; --grid-line: #e2e5e3;
+    --signal: #2453ff; --signal-dim: #e8edff;
+    --pass: #1f9d6c; --pass-dim: #e3f6ee;
+    --watch: #b8860f; --watch-dim: #fbf1da;
+    --warn: #c5622a; --warn-dim: #fbe9dd;
+    --fail: #c8372f; --fail-dim: #fbe4e2;
+    --font-display: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font-display); color: var(--ink); background-color: var(--paper);
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px; min-height: 100vh;
+  }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid var(--grid-line); background: rgba(243, 245, 244, 0.9); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; }
+  .topbar a { color: var(--ink-soft); text-decoration: none; }
+  .topbar a:hover { color: var(--signal); }
+
+  main { max-width: 820px; margin: 0 auto; padding: 40px 24px 64px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); margin: 0 0 8px; }
+  h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
+  .subtitle { font-family: var(--font-mono); font-size: 12px; color: var(--slate); margin: 0 0 32px; word-break: break-all; }
+
+  .issue-card { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 18px 20px; margin-bottom: 14px; }
+  .issue-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .sev-badge { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 4px; }
+  .sev-CRITICAL { background: var(--fail-dim); color: var(--fail); }
+  .sev-WARNING { background: var(--warn-dim); color: var(--warn); }
+  .sev-NOTICE { background: var(--paper); color: var(--slate); }
+  .issue-points { font-family: var(--font-mono); font-size: 12px; color: var(--slate); }
+  .issue-text { font-size: 15px; font-weight: 600; margin: 6px 0 12px; }
+
+  .affected-pages { display: flex; flex-direction: column; gap: 6px; }
+  .affected-pages a { font-family: var(--font-mono); font-size: 12.5px; color: var(--signal); text-decoration: none; word-break: break-all; }
+  .affected-pages a:hover { text-decoration: underline; }
+  .site-wide { font-family: var(--font-mono); font-size: 12.5px; color: var(--slate); font-style: italic; }
+
+  .empty-state { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 32px; text-align: center; color: var(--slate); font-size: 14px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; background: var(--signal); color: #fff; border: none; border-radius: 10px; padding: 12px 20px; text-decoration: none; margin-top: 28px; box-shadow: 0 1px 2px rgba(36, 83, 255, 0.15), 0 4px 12px rgba(36, 83, 255, 0.22); }
+  .btn:hover { background: #1c40d9; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a href="/">&larr; audit-tool</a>
+    <span><%= audit.start_url %></span>
+  </div>
+
+  <main>
+    <p class="eyebrow">Détail catégorie</p>
+    <h1><%= { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }[categoryKey] || categoryKey %></h1>
+    <p class="subtitle"><%= audit.start_url %> — audit du <%= new Date(audit.run_at).toLocaleString('fr-FR') %></p>
+
+    <% if (items.length === 0) { %>
+      <div class="empty-state">Aucun problème détecté dans cette catégorie pour cet audit.</div>
+    <% } else { %>
+      <% for (const item of items) { %>
+        <div class="issue-card">
+          <div class="issue-head">
+            <span class="sev-badge sev-<%= item.severity %>"><%= { CRITICAL: 'Critique', WARNING: 'Avertissement', NOTICE: 'Remarque' }[item.severity] || item.severity %></span>
+            <span class="issue-points"><%= item.points %> pts</span>
+          </div>
+          <div class="issue-text"><%= item.text %></div>
+          <% if (item.pages && item.pages.length > 0) { %>
+            <div class="affected-pages">
+              <% for (const url of item.pages) { %>
+                <a href="<%= url %>" target="_blank" rel="noopener">&#8599; <%= url %></a>
+              <% } %>
+            </div>
+          <% } else { %>
+            <div class="site-wide">Concerne l'ensemble du site, pas une page en particulier.</div>
+          <% } %>
+        </div>
+      <% } %>
+    <% } %>
+
+    <a class="btn" href="/">&larr; Nouvel audit</a>
+  </main>
+</body>
+</html>

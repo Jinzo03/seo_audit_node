@@ -123,7 +123,10 @@
   .metric-yellow { background: var(--watch-dim); color: var(--watch); }
   .metric-red { background: var(--fail-dim); color: var(--fail); }
   .metric-unknown { background: var(--paper); color: var(--slate); }
-  .subscore-card { flex: 1; min-width: 140px; background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 14px; }
+  .subscore-card { flex: 1; min-width: 140px; background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 14px; display: block; text-decoration: none; color: inherit; transition: border-color 0.15s ease, transform 0.1s ease; }
+  a.subscore-card { cursor: pointer; }
+  a.subscore-card:hover { border-color: var(--signal); transform: translateY(-1px); }
+  .section-hint { font-size: 12.5px; color: var(--slate); margin: -4px 0 12px; }
   .subscore-card .label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
   .subscore-card .value { font-family: var(--font-mono); font-size: 21px; font-weight: 600; margin-top: 4px; }
   .bar-track { background: var(--grid-line); border-radius: 3px; height: 5px; margin-top: 8px; overflow: hidden; }
@@ -253,13 +256,22 @@
     </div>
 
     <h2>Détail par catégorie</h2>
+    <p class="section-hint">Cliquez sur une catégorie pour voir les pages concernées par chaque problème.</p>
     <div class="subscores">
       <% for (const key of Object.keys(result.percentages)) { %>
+        <% if (auditId) { %>
+        <a class="subscore-card" href="/report/<%= auditId %>/category/<%= key %>">
+          <div class="label"><%= labels[key] %></div>
+          <div class="value"><%= result.percentages[key] %>%</div>
+          <div class="bar-track"><div class="bar-fill" data-target-width="<%= result.percentages[key] %>" style="width:0%"></div></div>
+        </a>
+        <% } else { %>
         <div class="subscore-card">
           <div class="label"><%= labels[key] %></div>
           <div class="value"><%= result.percentages[key] %>%</div>
           <div class="bar-track"><div class="bar-fill" data-target-width="<%= result.percentages[key] %>" style="width:0%"></div></div>
         </div>
+        <% } %>
       <% } %>
     </div>
 

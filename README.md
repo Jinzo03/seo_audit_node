@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-153 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling), no live network
+163 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -50,7 +50,10 @@ src/
                           JS-rendered with almost no real HTML content,
                           since this crawler never executes JavaScript)
   scoring/
-    auditScoring.js     the cahier de charge's scoring rules, fully implemented
+    auditScoring.js     the cahier de charge's scoring rules, fully
+                         implemented; every issue carries a stable `code`
+                         (e.g. 'missing_canonical') used to trace it back to
+                         the specific pages it affects
     buildAuditData.js   maps crawl output -> AuditScoring input, produces one
                          whole-site score
   performance/
@@ -61,22 +64,94 @@ src/
                           for one page — verified against a live site
   storage/
     db.js                SQLite persistence (better-sqlite3) — saves every
-                          audit run and serves the historical trend view
+                          audit run (now including full category-level
+                          issue detail as JSON) and serves both the
+                          historical trend view and the category drill-down
+                          page
   server.js             Express app; runs the sampled browser audit with a
                          graceful fallback if Playwright/Chromium isn't
-                         available, then saves the run and loads history
-                         for the domain before rendering
+                         available, saves the run (capturing its id), loads
+                         history for the domain, and serves the category
+                         drill-down route (GET /report/:id/category/:key)
 views/                  server-rendered EJS templates: a "diagnostic
                          console" visual design (IBM Plex Sans/Mono, ink/
-                         paper/signal palette, animated scan line), with the
-                         score gauge, historical sparkline, and filterable/
-                         sortable issue list from Week 4, plus a Week 5
-                         print stylesheet that turns the same page into a
-                         clean PDF report via the browser's own print dialog
-tests/                  153 tests across 24 suites
+                         paper/signal palette, animated scan line).
+                         index.ejs is the audit form; results.ejs has the
+                         score gauge, Core Web Vitals indicators, historical
+                         sparkline, and filterable/sortable issue list, plus
+                         a print stylesheet for PDF export; category.ejs
+                         (new) lists every page affected by a given
+                         category's issues, with a link to each
+tests/                  163 tests across 25 suites
 ```
 
 ## Findings worth knowing about
+
+**Encadrant feedback round — four requests, all addressed:**
+
+1. *"Le délai d'expiration maximal est trop court (20 pages seulement)."*
+   The crawl-level deadline (added in Week 5 as a robustness guard) was
+   defaulting to 60 seconds — reasonable for a demo, too short for a real
+   audit. Raised to 15 minutes as requested.
+
+2. *"Lorsqu'on clique sur une catégorie, on souhaite afficher une page
+   listant toutes les pages concernées."* This needed real architecture,
+   not a styling tweak: every issue in `auditScoring.js` now carries a
+   stable `code` (not just human-readable `text`, which embeds dynamic
+   values like counts and can't be matched reliably). On-page/mobile/
+   performance issues are naturally per-page already, so they're tagged
+   with their source URL directly; crawlability/technical issues are
+   computed once site-wide, so `buildAuditData.js` re-derives affected
+   pages from the same conditions that trigger each penalty (e.g.
+   `missing_canonical` → pages where `!page.canonical`). Genuinely
+   site-wide checks (SSL, robots.txt, sitemap) are labeled as such rather
+   than forced into a page list that wouldn't make sense. Issues are then
+   grouped by code, merging duplicates across pages into one entry with a
+   combined page list — a real change from before, where the same problem
+   on 5 pages meant 5 separate identical-looking rows in the issues table.
+   The category cards are now links to a new route
+   (`GET /report/:id/category/:key`), which needed the SQLite schema
+   extended to store full category detail as JSON (`details_json` column,
+   with a defensive `ALTER TABLE` for upgrading an existing local db file)
+   so the drill-down page is a real, reloadable URL rather than a
+   client-side-only view.
+
+3. *"Agrandir les points de la courbe statistique."* Sparkline dots went
+   from `r="3"` to `r="6"` with a white outline for contrast — confirmed
+   in a re-render, not just assumed from the CSS.
+
+4. *"Ajouter les indicateurs de performance (LCP, TTFB, CLS) avec un code
+   couleur."* Added, plus INP as a bonus since the same `browserResults`
+   data already carries it. Color thresholds match the ones already
+   driving the score (LCP >4s/2.5-4s, TTFB >600ms/300-600ms — the cahier
+   de charge's own numbers) rather than introducing a second, different
+   set of thresholds that would silently disagree with the score. CLS and
+   INP bands use the standard Core Web Vitals "needs improvement" tiers
+   for the same reason the scoring engine already does — the cahier de
+   charge only defines a single cutoff for these two, but three color
+   bands needed a sensible middle value. Verified by rendering with
+   synthetic data spanning all three bands and confirming the colors
+   actually differ.
+
+Also done in this round: full French pass on `results.ejs` (severity
+labels — WARNING/CRITICAL/NOTICE — were still displaying in English; now
+Avertissement/Critique/Remarque, with the underlying English codes kept
+internally for CSS classes and JS filtering so nothing broke), and both
+action buttons (Nouvel audit / Télécharger le rapport) restyled to match a
+reference screenshot — solid blue, rounded, consistent treatment for both
+instead of two different visual styles.
+
+**A pre-existing dead-code bug was found and fixed while touching this
+code**: `buildOnPageDataForPage`'s duplicate-content wiring compared
+`data === htmlPages[0]` — comparing a freshly-built data object to a raw
+page object, which can never be true regardless of which page it is. The
+`duplicateContentPageCount` parameter has therefore never actually applied
+to any page's scoring in practice. Fixed to compare the actual page
+(`p === htmlPages[0]`). Not currently exercised by any caller (nothing
+passes a non-zero `duplicateContentPageCount` yet — that's still on the
+list from the original near-duplicate-content-detection gap noted back in
+the crawler-testing phase), so this had no visible effect until now, but
+worth knowing about.
 
 **PDF export uses the browser's own print dialog, not a server-side PDF
 library.** `results.ejs` has a `@media print` stylesheet and a "Télécharger

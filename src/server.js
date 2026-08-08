@@ -3,7 +3,7 @@ const path = require('path');
 const { Crawler } = require('./crawler/crawler');
 const { scoreSite } = require('./scoring/buildAuditData');
 const { selectPagesForBrowserAudit } = require('./performance/selectSample');
-const { initDb, saveAuditRun, getAuditHistory } = require('./storage/db');
+const { initDb, saveAuditRun, getAuditHistory, getAuditById } = require('./storage/db');
 
 const app = express();
 app.set('view engine', 'ejs');
@@ -89,8 +89,10 @@ app.post('/audit', async (req, res) => {
     });
 
     // Persist before fetching history so the trend view includes this run.
+    let auditId = null;
     try {
-      saveAuditRun(db, { startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result });
+      const saved = saveAuditRun(db, { startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result });
+      auditId = saved.id;
     } catch (err) {
       console.warn('Could not save audit run to history:', err.message);
     }
@@ -102,10 +104,26 @@ app.post('/audit', async (req, res) => {
       console.warn('Could not load audit history:', err.message);
     }
 
-    res.render('results', { startUrl: crawler.startUrl, pages, result, history, browserResults });
+    res.render('results', { startUrl: crawler.startUrl, pages, result, history, browserResults, auditId });
   } catch (err) {
     res.status(500).send(`Audit failed: ${err.message}`);
   }
+});
+
+app.get('/report/:id/category/:categoryKey', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { categoryKey } = req.params;
+  const validKeys = ['crawlability', 'technical', 'performance', 'onPage', 'mobile'];
+
+  if (!Number.isInteger(id) || !validKeys.includes(categoryKey)) {
+    return res.status(400).send('Invalid report or category');
+  }
+
+  const audit = getAuditById(db, id);
+  if (!audit) return res.status(404).send('Audit not found — it may have been run on a different server instance.');
+
+  const items = audit.categoryDetails[categoryKey] || [];
+  res.render('category', { audit, categoryKey, items });
 });
 
 const PORT = process.env.PORT || 3000;
