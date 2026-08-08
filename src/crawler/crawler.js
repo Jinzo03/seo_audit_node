@@ -17,7 +17,7 @@ class Crawler {
       timeoutMs = 10000,
       delayMs = 0,
       maxRedirects = 10,
-      crawlTimeoutMs = 15 * 60 * 1000,
+      crawlTimeoutMs = 15 * 60 * 1000, // 15 minutes — raised from 60s per encadrant feedback (real sites were hitting the cap around ~20 pages)
       maxPageSizeBytes = 5 * 1024 * 1024,
     } = options;
 
