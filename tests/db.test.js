@@ -90,7 +90,7 @@ describe('storage/db', () => {
     assert.ok(result.id > 0);
   });
 
-  test('getAuditById round-trips categoryDetails through JSON correctly', () => {
+  test('getAuditById round-trips the full result (including categoryDetails) through JSON correctly', () => {
     const scoreResult = fakeScoreResult({
       categoryDetails: {
         onPage: [{ code: 'title_missing', text: 'Meta title absent', severity: 'WARNING', points: -2, pages: ['https://round-trip.com/a'] }],
@@ -98,8 +98,23 @@ describe('storage/db', () => {
     });
     const { id } = saveAuditRun(db, { startUrl: 'https://round-trip.com', pagesCrawled: 1, scoreResult });
     const loaded = getAuditById(db, id);
-    assert.equal(loaded.categoryDetails.onPage[0].code, 'title_missing');
-    assert.deepEqual(loaded.categoryDetails.onPage[0].pages, ['https://round-trip.com/a']);
+    assert.equal(loaded.result.categoryDetails.onPage[0].code, 'title_missing');
+    assert.deepEqual(loaded.result.categoryDetails.onPage[0].pages, ['https://round-trip.com/a']);
+    assert.equal(loaded.result.final, scoreResult.final);
+  });
+
+  test('getAuditById round-trips browserResults', () => {
+    const scoreResult = fakeScoreResult();
+    const browserResults = { 'https://perf-test.com': { lcp: 1.2, ttfb: 150, cls: 0.02, inp: 80 } };
+    const { id } = saveAuditRun(db, { startUrl: 'https://perf-test.com', pagesCrawled: 1, scoreResult, browserResults });
+    const loaded = getAuditById(db, id);
+    assert.deepEqual(loaded.browserResults, browserResults);
+  });
+
+  test('getAuditById defaults browserResults to an empty object when none was saved', () => {
+    const { id } = saveAuditRun(db, { startUrl: 'https://no-browser.com', pagesCrawled: 1, scoreResult: fakeScoreResult() });
+    const loaded = getAuditById(db, id);
+    assert.deepEqual(loaded.browserResults, {});
   });
 
   test('getAuditById returns null for a non-existent id', () => {
