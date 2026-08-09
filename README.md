@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-163 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down), no live network
+165 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -68,11 +68,13 @@ src/
                           issue detail as JSON) and serves both the
                           historical trend view and the category drill-down
                           page
-  server.js             Express app; runs the sampled browser audit with a
+  server.js             Express app; POST /audit crawls, scores, saves,
+                         and redirects to GET /report/:id — the actual
+                         results page, reloadable and linkable, not just a
+                         POST response. Also serves the category drill-down
+                         route (GET /report/:id/category/:key), with a
                          graceful fallback if Playwright/Chromium isn't
-                         available, saves the run (capturing its id), loads
-                         history for the domain, and serves the category
-                         drill-down route (GET /report/:id/category/:key)
+                         available for the browser audit step
 views/                  server-rendered EJS templates: a "diagnostic
                          console" visual design (IBM Plex Sans/Mono, ink/
                          paper/signal palette, animated scan line).
@@ -80,12 +82,36 @@ views/                  server-rendered EJS templates: a "diagnostic
                          score gauge, Core Web Vitals indicators, historical
                          sparkline, and filterable/sortable issue list, plus
                          a print stylesheet for PDF export; category.ejs
-                         (new) lists every page affected by a given
-                         category's issues, with a link to each
-tests/                  163 tests across 25 suites
+                         lists every page affected by a given category's
+                         issues (with a link to each), plus tabs to jump
+                         directly between categories and a button back to
+                         the results page for the same audit
+tests/                  165 tests across 25 suites
 ```
 
 ## Findings worth knowing about
+
+**A small UX complaint turned up a real architecture gap: results weren't
+a real page.** The category drill-down page only had a "Nouvel audit"
+button — no way back to the results just seen, and no way to jump between
+categories without going back through results each time. The actual cause:
+`POST /audit` rendered `results.ejs` directly as the response body, so
+there was never a stable, reloadable URL for it — nothing to link back to.
+Fixed properly rather than patched around: `POST /audit` now saves the
+run and redirects (302) to `GET /report/:id`, which is the real results
+page — reloadable, linkable, bookmarkable. The SQLite schema was extended
+to store the *entire* `scoreResult` (not just `categoryDetails` as before)
+plus `browserResults` as JSON, which is what makes reconstructing the full
+results page from just an id possible. The crawled `pages` array itself is
+deliberately NOT stored — `results.ejs` only ever reads `pages.length`,
+already captured by the existing `pages_crawled` column, so storing the
+full array would've been pure overhead. `category.ejs` now has a
+"Retour aux résultats" button (linking to `/report/:id`) and a row of tabs
+for all five categories, so switching from one category's problems to
+another's is one click instead of a round trip through results each time.
+Verified through real HTTP requests end to end: audit → redirect → results
+→ category → tab-switch to a different category → back button — all
+followed and confirmed, not just written and assumed.
 
 **Encadrant feedback round — four requests, all addressed:**
 

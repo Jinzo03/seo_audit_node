@@ -57,10 +57,19 @@ function domainFromUrl(url) {
 
 /**
  * Persists one audit run. `scoreResult` is scoreSite()'s return value;
- * `pagesCrawled` and `startUrl` come from the crawl itself. Returns the
- * inserted row's id, used to build the category drill-down URL.
+ * `pagesCrawled` and `startUrl` come from the crawl itself. `browserResults`
+ * is optional (Playwright may not have run). Returns the inserted row's id.
+ *
+ * Stores the FULL scoreResult + browserResults as JSON, not just a
+ * category-detail subset — this is what lets /report/:id reconstruct the
+ * exact results page later (for the "back to results" and category
+ * quick-switch navigation), not just the drill-down view. The crawled
+ * pages themselves are NOT stored: results.ejs only ever reads
+ * `pages.length`, which is already captured by `pagesCrawled` below.
  */
-function saveAuditRun(db, { startUrl, pagesCrawled, scoreResult, runAt = Date.now() }) {
+function saveAuditRun(db, {
+  startUrl, pagesCrawled, scoreResult, browserResults = {}, runAt = Date.now(),
+}) {
   const stmt = db.prepare(`
     INSERT INTO audits (
       domain, start_url, run_at, final_score, tier_level,
@@ -84,29 +93,53 @@ function saveAuditRun(db, { startUrl, pagesCrawled, scoreResult, runAt = Date.no
     pctMobile: scoreResult.percentages.mobile,
     pagesCrawled,
     totalIssues: scoreResult.issues.length,
-    detailsJson: JSON.stringify({ categoryDetails: scoreResult.categoryDetails || {} }),
+    detailsJson: JSON.stringify({ result: scoreResult, browserResults }),
   });
 
   return { ...info, id: info.lastInsertRowid };
 }
 
 /**
- * Loads one audit run by id, with categoryDetails parsed back out of JSON.
- * Returns null if the id doesn't exist. Used by the category drill-down
- * route to render the list of affected pages for a given category.
+ * Loads one audit run by id, with the full scoreResult and browserResults
+ * parsed back out of JSON. Returns null if the id doesn't exist. Falls back
+ * to reconstructing a minimal `result` from the flattened summary columns
+ * if details_json is missing/unparseable (e.g. a row saved before this
+ * existed) — degraded but not broken.
  */
 function getAuditById(db, id) {
   const row = db.prepare('SELECT * FROM audits WHERE id = ?').get(id);
   if (!row) return null;
 
-  let categoryDetails = {};
+  let result = null;
+  let browserResults = {};
   try {
-    categoryDetails = JSON.parse(row.details_json || '{}').categoryDetails || {};
+    const parsed = JSON.parse(row.details_json || '{}');
+    result = parsed.result || null;
+    browserResults = parsed.browserResults || {};
   } catch (err) {
-    categoryDetails = {};
+    result = null;
   }
 
-  return { ...row, categoryDetails };
+  if (!result) {
+    result = {
+      final: row.final_score,
+      tier: { level: row.tier_level, color: 'green' },
+      percentages: {
+        crawlability: row.pct_crawlability,
+        technical: row.pct_technical,
+        performance: row.pct_performance,
+        onPage: row.pct_onpage,
+        mobile: row.pct_mobile,
+      },
+      issues: [],
+      categoryDetails: { crawlability: [], technical: [], performance: [], onPage: [], mobile: [] },
+      notYetMeasured: [],
+      crawlTimedOut: false,
+      possibleSpaPages: [],
+    };
+  }
+
+  return { ...row, result, browserResults };
 }
 
 /**

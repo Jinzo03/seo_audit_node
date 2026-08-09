@@ -50,20 +50,35 @@
 
   .empty-state { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 32px; text-align: center; color: var(--slate); font-size: 14px; }
 
-  .btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; background: var(--signal); color: #fff; border: none; border-radius: 10px; padding: 12px 20px; text-decoration: none; margin-top: 28px; box-shadow: 0 1px 2px rgba(36, 83, 255, 0.15), 0 4px 12px rgba(36, 83, 255, 0.22); }
+  .category-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 28px; }
+  .category-tab { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--grid-line); background: var(--paper-raised); color: var(--ink-soft); text-decoration: none; }
+  .category-tab:hover { border-color: var(--signal); color: var(--signal); }
+  .category-tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  .actions-row { display: flex; align-items: center; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; background: var(--signal); color: #fff; border: none; border-radius: 10px; padding: 12px 20px; text-decoration: none; box-shadow: 0 1px 2px rgba(36, 83, 255, 0.15), 0 4px 12px rgba(36, 83, 255, 0.22); }
   .btn:hover { background: #1c40d9; }
+  .btn-secondary { background: var(--paper-raised); color: var(--ink); border: 1px solid var(--grid-line); box-shadow: none; }
+  .btn-secondary:hover { background: var(--paper-raised); border-color: var(--signal); color: var(--signal); }
 </style>
 </head>
 <body>
   <div class="topbar">
-    <a href="/">&larr; audit-tool</a>
+    <a href="/report/<%= auditId %>">&larr; audit-tool</a>
     <span><%= audit.start_url %></span>
   </div>
 
   <main>
+    <% const categoryLabels = { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }; %>
     <p class="eyebrow">Détail catégorie</p>
-    <h1><%= { crawlability: 'Crawlabilité', technical: 'Technique', performance: 'Performance', onPage: 'On-page', mobile: 'Mobile & UX' }[categoryKey] || categoryKey %></h1>
+    <h1><%= categoryLabels[categoryKey] || categoryKey %></h1>
     <p class="subtitle"><%= audit.start_url %> — audit du <%= new Date(audit.run_at).toLocaleString('fr-FR') %></p>
+
+    <div class="category-tabs">
+      <% for (const key of validKeys) { %>
+        <a class="category-tab<%= key === categoryKey ? ' active' : '' %>" href="/report/<%= auditId %>/category/<%= key %>"><%= categoryLabels[key] %></a>
+      <% } %>
+    </div>
 
     <% if (items.length === 0) { %>
       <div class="empty-state">Aucun problème détecté dans cette catégorie pour cet audit.</div>
@@ -88,7 +103,10 @@
       <% } %>
     <% } %>
 
-    <a class="btn" href="/">&larr; Nouvel audit</a>
+    <div class="actions-row">
+      <a class="btn" href="/report/<%= auditId %>">&larr; Retour aux résultats</a>
+      <a class="btn btn-secondary" href="/">Nouvel audit</a>
+    </div>
   </main>
 </body>
 </html>

@@ -12,7 +12,7 @@ const ROBOTS_TOKEN = 'SimpleSEOAuditBot'; // bare name for robots.txt matching
 class Crawler {
   constructor(startUrl, options = {}) {
     const {
-      maxPages = 20,
+      maxPages = 200,
       concurrency = 5,
       timeoutMs = 10000,
       delayMs = 0,

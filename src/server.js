@@ -88,26 +88,46 @@ app.post('/audit', async (req, res) => {
       crawlTimedOut: crawler.crawlTimedOut,
     });
 
-    // Persist before fetching history so the trend view includes this run.
+    // Persist before redirecting — /report/:id is the actual results page now.
     let auditId = null;
     try {
-      const saved = saveAuditRun(db, { startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result });
+      const saved = saveAuditRun(db, {
+        startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result, browserResults,
+      });
       auditId = saved.id;
     } catch (err) {
-      console.warn('Could not save audit run to history:', err.message);
+      console.warn('Could not save audit run:', err.message);
+      return res.status(500).send('Audit ran but could not be saved — please try again.');
     }
 
-    let history = [];
-    try {
-      history = getAuditHistory(db, crawler.startUrl);
-    } catch (err) {
-      console.warn('Could not load audit history:', err.message);
-    }
-
-    res.render('results', { startUrl: crawler.startUrl, pages, result, history, browserResults, auditId });
+    res.redirect(`/report/${auditId}`);
   } catch (err) {
     res.status(500).send(`Audit failed: ${err.message}`);
   }
+});
+
+app.get('/report/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).send('Invalid report id');
+
+  const audit = getAuditById(db, id);
+  if (!audit) return res.status(404).send('Audit not found — it may have been run on a different server instance.');
+
+  let history = [];
+  try {
+    history = getAuditHistory(db, audit.start_url);
+  } catch (err) {
+    console.warn('Could not load audit history:', err.message);
+  }
+
+  res.render('results', {
+    startUrl: audit.start_url,
+    pagesCrawled: audit.pages_crawled,
+    result: audit.result,
+    history,
+    browserResults: audit.browserResults,
+    auditId: id,
+  });
 });
 
 app.get('/report/:id/category/:categoryKey', (req, res) => {
@@ -122,8 +142,8 @@ app.get('/report/:id/category/:categoryKey', (req, res) => {
   const audit = getAuditById(db, id);
   if (!audit) return res.status(404).send('Audit not found — it may have been run on a different server instance.');
 
-  const items = audit.categoryDetails[categoryKey] || [];
-  res.render('category', { audit, categoryKey, items });
+  const items = audit.result.categoryDetails[categoryKey] || [];
+  res.render('category', { audit, auditId: id, categoryKey, items, validKeys });
 });
 
 const PORT = process.env.PORT || 3000;
