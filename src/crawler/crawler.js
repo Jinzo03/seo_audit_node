@@ -233,6 +233,11 @@ class Crawler {
     data.isHttps = url.startsWith('https://');
     data.mixedContent = detectMixedContent($, url);
 
+    // RAG/GEO readiness — bonus signals, not part of the scored categories.
+    data.longParagraphCount = extract.countLongParagraphs($);
+    data.hasListsOrTables = extract.hasListsOrTables($);
+    data.hasAiFriendlySchema = extract.detectAiFriendlySchema(data.structuredDataRaw);
+
     const links = extract.extractLinks($, url);
     data.linksFound = links;
     data.internalLinks = links.filter((l) => this.sameDomain(l)).length;

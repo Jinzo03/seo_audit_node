@@ -114,6 +114,59 @@ function detectPossibleSpa($, wordCount) {
   });
 }
 
+// --------------------------------------------------------------------
+// RAG / GEO readiness signals — NOT part of the cahier de charge's
+// 100-point score. AI answer engines (ChatGPT, Perplexity, Google AI
+// Overviews) break pages into chunks to extract answers; these checks
+// estimate how well a page is formatted for that, as a separate bonus
+// insight, not a scored category. Kept deliberately simple (word counts,
+// tag presence, schema @type checks) rather than any real NLP — a
+// semantic "is this the bottom-line-first sentence" judgment call would
+// produce enough false positives to undermine trust in the signal, so
+// that idea was deliberately dropped in favor of things measurable
+// reliably from the DOM alone.
+
+const MAX_PARAGRAPH_WORDS = 300;
+const AI_FRIENDLY_SCHEMA_TYPES = ['FAQPage', 'HowTo', 'QAPage'];
+
+// Paragraphs over ~300 words are harder for an LLM to cleanly extract a
+// single answer from — flags how many such paragraphs are on the page.
+function countLongParagraphs($) {
+  let count = 0;
+  $('p').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text && wordCount(text) > MAX_PARAGRAPH_WORDS) count += 1;
+  });
+  return count;
+}
+
+// Lists and tables are extracted cleanly by AI systems (structured,
+// unambiguous) compared to prose — their presence is a positive signal.
+function hasListsOrTables($) {
+  return $('ul, ol, table').length > 0;
+}
+
+// FAQPage/HowTo/QAPage structured data is exactly the shape AI answer
+// engines are built to consume directly. Operates on the already-parsed
+// structuredDataRaw strings rather than re-parsing the DOM.
+function detectAiFriendlySchema(structuredDataRaw) {
+  for (const raw of structuredDataRaw || []) {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      continue; // invalid JSON — already flagged elsewhere as a structured data error
+    }
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
+      if (types.some((t) => AI_FRIENDLY_SCHEMA_TYPES.includes(t))) return true;
+    }
+  }
+  return false;
+}
+
 module.exports = {
   extractTitle,
   extractMetaDescription,
@@ -129,4 +182,7 @@ module.exports = {
   extractStructuredData,
   extractLinks,
   detectPossibleSpa,
+  countLongParagraphs,
+  hasListsOrTables,
+  detectAiFriendlySchema,
 };

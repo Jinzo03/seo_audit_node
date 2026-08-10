@@ -193,6 +193,28 @@ function buildMobileDataForPage(page, browserResult) {
   };
 }
 
+/**
+ * RAG/GEO readiness — a bonus insight, NOT part of the cahier de charge's
+ * 100-point score. Deliberately kept out of `categories`/`issues`/
+ * `categoryDetails` so it can never affect the official score; surfaced as
+ * its own separate field on the result instead.
+ */
+function buildRagReadiness(htmlPages) {
+  const total = htmlPages.length;
+  const pagesWithLongParagraphs = htmlPages
+    .filter((p) => (p.longParagraphCount || 0) > 0)
+    .map((p) => p.url);
+  const pagesWithListsOrTables = htmlPages.filter((p) => p.hasListsOrTables).length;
+  const pagesWithAiSchema = htmlPages.filter((p) => p.hasAiFriendlySchema).length;
+
+  return {
+    totalPages: total,
+    pagesWithLongParagraphs,
+    listsOrTablesPercent: total ? Math.round((pagesWithListsOrTables / total) * 100) : 0,
+    aiFriendlySchemaPercent: total ? Math.round((pagesWithAiSchema / total) * 100) : 0,
+  };
+}
+
 function buildPerformanceDataForPage(browserResult) {
   return {
     lcp: browserResult.lcp !== null && browserResult.lcp !== undefined ? browserResult.lcp : undefined,
@@ -397,6 +419,7 @@ function scoreSite({
       : [...ALWAYS_NOT_YET_MEASURED, ...BROWSER_ONLY_FIELDS],
     crawlTimedOut,
     possibleSpaPages,
+    ragReadiness: buildRagReadiness(htmlPages), // bonus insight, not part of the score above
   };
 }
 
@@ -407,5 +430,6 @@ module.exports = {
   buildOnPageDataForPage,
   buildMobileDataForPage,
   buildPerformanceDataForPage,
+  buildRagReadiness,
   NOT_YET_MEASURED,
 };
