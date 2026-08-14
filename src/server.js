@@ -1,9 +1,12 @@
+require('./config/loadEnv').loadEnv();
+
 const express = require('express');
 const path = require('path');
 const { Crawler } = require('./crawler/crawler');
 const { scoreSite } = require('./scoring/buildAuditData');
 const { selectPagesForBrowserAudit } = require('./performance/selectSample');
 const { initDb, saveAuditRun, getAuditHistory, getAuditById } = require('./storage/db');
+const { runCitationAudit } = require('./geo/citations');
 
 const app = express();
 app.set('view engine', 'ejs');
@@ -72,16 +75,28 @@ app.post('/audit', async (req, res) => {
   if (!url) return res.status(400).send('Missing url');
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
   maxPages = Math.min(Math.max(parseInt(maxPages, 10) || 20, 1), 200);
+  const geoRequested = req.body.runGeo === 'on';
+  const geoQueries = String(req.body.geoQueries || '')
+    .split(/\r?\n/)
+    .map((q) => q.trim())
+    .filter(Boolean);
 
   try {
     const crawler = new Crawler(url, { maxPages, delayMs: 100 });
-    const [pages, sitemapResult, sslResult] = await Promise.all([
-      crawler.crawl(),
+    const pages = await crawler.crawl();
+    const [sitemapResult, sslResult] = await Promise.all([
       crawler.checkSitemap(),
       crawler.checkSsl(),
     ]);
 
     const browserResults = await runSampledBrowserAudits(pages, crawler.startUrl);
+    const geoCitations = await runCitationAudit({
+      requested: geoRequested,
+      userQueries: geoQueries,
+      pages,
+      domain: crawler.domain,
+      options: { maxTotal: 5, maxAuto: 3 },
+    });
 
     const result = scoreSite({
       pages, sitemapResult, sslResult, browserResults, robots: crawler.robots, startUrl: crawler.startUrl,
@@ -92,7 +107,7 @@ app.post('/audit', async (req, res) => {
     let auditId = null;
     try {
       const saved = saveAuditRun(db, {
-        startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result, browserResults,
+        startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result, browserResults, geoCitations,
       });
       auditId = saved.id;
     } catch (err) {
@@ -126,6 +141,7 @@ app.get('/report/:id', (req, res) => {
     result: audit.result,
     history,
     browserResults: audit.browserResults,
+    geoCitations: audit.geoCitations,
     auditId: id,
   });
 });

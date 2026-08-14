@@ -165,7 +165,7 @@
   .field { margin-bottom: 20px; }
   .field:last-of-type { margin-bottom: 26px; }
 
-  input[type="text"], input[type="number"] {
+  input[type="text"], input[type="number"], textarea {
     width: 100%;
     font-family: var(--font-mono);
     font-size: 14px;
@@ -178,11 +178,25 @@
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
   input[type="number"] { max-width: 140px; }
-  input::placeholder { color: #a4a9ae; }
-  input:focus {
+  textarea { min-height: 104px; resize: vertical; line-height: 1.45; }
+  input::placeholder, textarea::placeholder { color: #a4a9ae; }
+  input:focus, textarea:focus {
     border-color: var(--signal);
     box-shadow: 0 0 0 3px var(--signal-dim);
   }
+  .check-field {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border: 1px solid var(--grid-line);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+  .check-field input { margin-top: 2px; accent-color: var(--signal); }
+  .check-copy { display: flex; flex-direction: column; gap: 2px; }
+  .check-title { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+  .check-hint { font-size: 12px; color: var(--slate); line-height: 1.4; }
 
   button {
     display: inline-flex;
@@ -257,6 +271,19 @@
       <div class="field">
         <label class="panel-label" for="maxPages">Nombre maximum de pages à crawler</label>
         <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
+      </div>
+      <div class="field">
+        <label class="check-field" for="runGeo">
+          <input type="checkbox" id="runGeo" name="runGeo">
+          <span class="check-copy">
+            <span class="check-title">Verifier les citations Google AI Overview</span>
+            <span class="check-hint">Optionnel, hors score. Necessite <code>SERPAPI_KEY</code> et consomme jusqu'a 5 recherches SerpApi.</span>
+          </span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="panel-label" for="geoQueries">Requetes GEO ciblees (une par ligne, optionnel)</label>
+        <textarea id="geoQueries" name="geoQueries" placeholder="meilleur logiciel audit SEO&#10;comment auditer le referencement d'un site"></textarea>
       </div>
       <button type="submit"><span class="arrow">&#9656;</span> Lancer l'analyse</button>
     </form>

@@ -321,6 +321,19 @@ describe('error handling', () => {
     assert.equal('title' in page, false);
   });
 
+  test('an abort while reading the response body records an error instead of crashing', async () => {
+    const crawler = new Crawler('https://site.com');
+    const fakeResp = {
+      status: 200,
+      headers: { get: (name) => (name === 'content-type' ? 'text/html' : null) },
+      text: async () => { throw new Error('The operation was aborted.'); },
+    };
+    const page = await crawler.processPage('https://site.com/slow-body', fakeResp, 20, null);
+    assert.equal(page.statusCode, 200);
+    assert.equal(page.error, 'The operation was aborted.');
+    assert.equal('title' in page, false);
+  });
+
   test('fetchOne catches a timeout/abort error', async () => {
     const crawler = new Crawler('https://site.com');
     const originalFetch = global.fetch;

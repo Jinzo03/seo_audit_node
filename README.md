@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-165 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down), no live network
+171 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -30,7 +30,11 @@ urgent, but worth knowing about so it's not a mystery if it recurs.
 src/
   crawler/
     normalizeLink.js     pure URL resolution — no I/O
-    extract.js           one function per data point (title, H1, images, ...)
+    extract.js           one function per data point (title, H1, images,
+                          ...) plus RAG/GEO readiness signals (paragraph
+                          length, lists/tables, FAQ/HowTo schema) — a
+                          bonus insight kept explicitly separate from the
+                          cahier de charge's scored categories
     robots.js            robots.txt fetch + matching
     sitemap.js           sitemap XML parsing (flat + sitemap index)
     securityHeaders.js   HSTS + security header detection (reads headers
@@ -62,6 +66,10 @@ src/
                           it on every page
     browserAudit.js      Playwright: real Core Web Vitals + mobile/UX checks
                           for one page — verified against a live site
+  geo/
+    citations.js         optional SerpApi-powered Google AI Overview
+                          citation tracking, kept as a bonus GEO signal
+                          outside the official 100-point SEO score
   storage/
     db.js                SQLite persistence (better-sqlite3) — saves every
                           audit run (now including full category-level
@@ -86,10 +94,96 @@ views/                  server-rendered EJS templates: a "diagnostic
                          issues (with a link to each), plus tabs to jump
                          directly between categories and a button back to
                          the results page for the same audit
-tests/                  165 tests across 25 suites
+tests/                  171 tests across 26 suites
 ```
 
 ## Findings worth knowing about
+
+**Added a RAG/GEO readiness feature — deliberately scoped down from a
+larger proposal, and deliberately kept out of the official score.** Three
+signals for how well content is formatted for AI answer engines (ChatGPT,
+Perplexity, AI Overviews): paragraphs over 300 words (harder for an LLM to
+cleanly extract a single answer from), presence of lists/tables (extracted
+cleanly, unlike prose), and FAQPage/HowTo/QAPage structured data (consumed
+directly by AI systems). A fourth idea from the original proposal — judging
+whether the sentence after an `<h2>` is a direct answer vs. "fluff" — was
+dropped: that's a real semantic judgment call, and a naive heuristic for it
+(question words, hedging phrases, sentence length) would produce enough
+false positives/negatives to undermine trust in the signal rather than add
+value. Kept to things reliably measurable from the DOM alone instead.
+
+This is explicitly **not** part of the cahier de charge's 100-point score —
+it's a separate `ragReadiness` field on the result, rendered in its own
+clearly-labeled "Bonus — hors score" section, and there's a dedicated test
+(`ragReadiness never affects the official score, regardless of how bad it
+looks`) asserting that a page with every RAG signal failing produces an
+identical score to a clean page. This was a deliberate line not to cross:
+the official scoring formula has been kept exactly matching the spec since
+Week 1, with every deviation explicitly documented (FID→INP, the CLS
+double-counting note, etc.) — silently adding new penalty types on top of
+that, even well-intentioned ones, would blur the line between "implements
+the spec" and "implements the spec plus whatever seemed like a good idea,"
+which isn't a line worth blurring on a graded deliverable.
+
+**Added optional Google AI Overview citation tracking via SerpApi — also
+hors score.** The audit form now has a GEO checkbox and an optional
+"target queries" textarea. When enabled, `src/geo/citations.js` sends up to
+5 sequential queries to SerpApi's Google Search API, follows the documented
+`ai_overview.page_token` / `google_ai_overview` second request when needed,
+extracts citation URLs from `ai_overview.references[].link` plus nested
+URL-like `source` fields, and reports whether the audited domain (including
+subdomains) is cited. User-provided queries are preferred; if the textarea
+is empty, the tool derives a few fallback queries from crawled page titles.
+The results are saved inside the existing report JSON, so `/report/:id`
+remains reloadable.
+
+This feature is deliberately opt-in because every query consumes SerpApi
+quota, and it requires a private API key. Create a local `.env` file in the
+project root:
+
+```env
+SERPAPI_KEY=your_key_here
+```
+
+Then start the app normally:
+
+```bash
+npm start
+```
+
+You can still use a one-off PowerShell environment variable instead:
+
+```powershell
+$env:SERPAPI_KEY = "your_key_here"
+npm start
+```
+
+If the checkbox is enabled without `SERPAPI_KEY`, the report shows a
+clear "SerpApi non configure" note instead of failing the audit. I could
+only verify the integration with mocked/local logic in this environment
+because no real key is available here; the response shape was checked
+against SerpApi's current official AI Overview docs.
+
+**A later SerpApi debugging pass found a subtle two-request key bug.** The
+symptom was confusing: SerpApi's dashboard showed searches being consumed,
+so the API key clearly worked, but the report still displayed
+`SerpApi AI Overview follow-up request failed (401): Invalid API key`.
+The reason was the two-step AI Overview flow. The first `engine=google`
+request used the configured `SERPAPI_KEY` and succeeded, which counted as a
+search. But when that response included `ai_overview.page_token`, the code
+trusted SerpApi's returned `serpapi_link` directly for the second
+`engine=google_ai_overview` request. That follow-up URL can arrive without
+an `api_key`, or with a stale/placeholder one, so only the second request
+failed.
+
+Fixed in `src/geo/citations.js` by rewriting any provided follow-up URL
+through `withSerpApiKey()`, which always injects the currently configured
+key before making the request. While touching the module, SerpApi responses
+were also made less opaque: if the API returns a JSON `error`, the report
+now surfaces that message instead of only saying "failed (401)" or "failed
+(500)". Added regression tests for injecting a missing key, replacing a
+stale key, following `page_token`, and preserving the AI Overview-only
+`json_restrictor=ai_overview` request shape.
 
 **A small UX complaint turned up a real architecture gap: results weren't
 a real page.** The category drill-down page only had a "Nouvel audit"
@@ -216,6 +310,23 @@ break this in production" rather than waiting for a bug report:
   flagged, and the results page now discloses this honestly ("this may be
   a crawler limitation, not a real SEO problem") instead of just reporting
   thin-content findings as if they were confirmed issues.
+
+**A real "Audit failed: The operation was aborted." crash was found after
+testing against several live sites.** The original request-level timeout
+handling looked complete because `fetchOne()` caught aborted fetches, but
+there was a second place an abort can happen: after headers arrive, while
+`resp.text()` is still reading the HTML body. That body-read error escaped
+`processPage()`, bubbled all the way up to `POST /audit`, and killed the
+entire run even though the crawler could have safely recorded that single
+page as failed and continued.
+
+Fixed in `src/crawler/crawler.js`: HTML body reading is now wrapped in a
+local `try/catch`; if it aborts, the page keeps its URL/status/response
+time and gets an `error` message, but extraction is skipped for that page
+instead of throwing away the whole report. Verified with a targeted
+regression test that forces `resp.text()` to throw `"The operation was
+aborted."`, plus a real Express-route smoke test where `POST /audit` against
+`https://example.com` completed normally and redirected to `/report/:id`.
 
 **The UI got a full visual redesign.** The original functional-but-generic
 form styling (plain bordered card, default blue button) was replaced with a

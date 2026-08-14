@@ -68,7 +68,7 @@ function domainFromUrl(url) {
  * `pages.length`, which is already captured by `pagesCrawled` below.
  */
 function saveAuditRun(db, {
-  startUrl, pagesCrawled, scoreResult, browserResults = {}, runAt = Date.now(),
+  startUrl, pagesCrawled, scoreResult, browserResults = {}, geoCitations = null, runAt = Date.now(),
 }) {
   const stmt = db.prepare(`
     INSERT INTO audits (
@@ -93,7 +93,7 @@ function saveAuditRun(db, {
     pctMobile: scoreResult.percentages.mobile,
     pagesCrawled,
     totalIssues: scoreResult.issues.length,
-    detailsJson: JSON.stringify({ result: scoreResult, browserResults }),
+    detailsJson: JSON.stringify({ result: scoreResult, browserResults, geoCitations }),
   });
 
   return { ...info, id: info.lastInsertRowid };
@@ -112,10 +112,12 @@ function getAuditById(db, id) {
 
   let result = null;
   let browserResults = {};
+  let geoCitations = null;
   try {
     const parsed = JSON.parse(row.details_json || '{}');
     result = parsed.result || null;
     browserResults = parsed.browserResults || {};
+    geoCitations = parsed.geoCitations || null;
   } catch (err) {
     result = null;
   }
@@ -136,10 +138,24 @@ function getAuditById(db, id) {
       notYetMeasured: [],
       crawlTimedOut: false,
       possibleSpaPages: [],
+      ragReadiness: {
+        totalPages: 0,
+        pagesWithLongParagraphs: [],
+        listsOrTablesPercent: 0,
+        aiFriendlySchemaPercent: 0,
+      },
+    };
+  }
+  if (!result.ragReadiness) {
+    result.ragReadiness = {
+      totalPages: 0,
+      pagesWithLongParagraphs: [],
+      listsOrTablesPercent: 0,
+      aiFriendlySchemaPercent: 0,
     };
   }
 
-  return { ...row, result, browserResults };
+  return { ...row, result, browserResults, geoCitations };
 }
 
 /**

@@ -127,6 +127,28 @@
   a.subscore-card { cursor: pointer; }
   a.subscore-card:hover { border-color: var(--signal); transform: translateY(-1px); }
   .section-hint { font-size: 12.5px; color: var(--slate); margin: -4px 0 12px; }
+
+  .bonus-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; background: var(--signal-dim); color: var(--signal); padding: 3px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
+  .rag-cards { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .rag-card { flex: 1; min-width: 160px; background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 14px 16px; }
+  .rag-value { font-family: var(--font-mono); font-size: 24px; font-weight: 600; }
+  .rag-label { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+  .rag-hint { font-size: 11.5px; color: var(--slate); margin-top: 3px; }
+  .rag-pages { margin-top: 14px; display: flex; flex-direction: column; gap: 5px; }
+  .rag-pages a { font-family: var(--font-mono); font-size: 12px; color: var(--signal); text-decoration: none; word-break: break-all; }
+  .rag-pages a:hover { text-decoration: underline; }
+  .geo-panel { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 16px; }
+  .geo-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .geo-pill { font-family: var(--font-mono); font-size: 11px; background: var(--paper); border: 1px solid var(--grid-line); border-radius: 4px; padding: 6px 9px; color: var(--ink-soft); }
+  .geo-results { display: flex; flex-direction: column; gap: 10px; }
+  .geo-row { border-top: 1px solid var(--grid-line); padding-top: 10px; }
+  .geo-query { font-family: var(--font-mono); font-size: 12px; color: var(--ink); margin-bottom: 5px; }
+  .geo-state { font-size: 12.5px; color: var(--ink-soft); }
+  .geo-state.good { color: var(--pass); font-weight: 600; }
+  .geo-state.bad { color: var(--fail); font-weight: 600; }
+  .geo-links { margin-top: 5px; display: flex; flex-direction: column; gap: 3px; }
+  .geo-links a { font-family: var(--font-mono); font-size: 11.5px; color: var(--signal); text-decoration: none; word-break: break-all; }
+  .geo-links a:hover { text-decoration: underline; }
   .subscore-card .label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
   .subscore-card .value { font-family: var(--font-mono); font-size: 21px; font-weight: 600; margin-top: 4px; }
   .bar-track { background: var(--grid-line); border-radius: 3px; height: 5px; margin-top: 8px; overflow: hidden; }
@@ -254,6 +276,92 @@
         <div class="gauge-caption">Score sur 100, pondéré par catégorie</div>
       </div>
     </div>
+    <h2>Compatibilité IA / RAG <span class="bonus-tag"> hors score</span></h2>
+    <p class="section-hint">
+      Signaux indicatifs de compatibilité avec les moteurs de réponse IA (ChatGPT, Perplexity, AI Overviews) —
+      n'affecte pas le score sur 100 ci-dessus.
+    </p>
+    <div class="rag-cards">
+      <div class="rag-card">
+        <div class="rag-value"><%= result.ragReadiness.listsOrTablesPercent %>%</div>
+        <div class="rag-label">Pages avec listes/tableaux</div>
+        <div class="rag-hint">Format facilement extrait par les IA</div>
+      </div>
+      <div class="rag-card">
+        <div class="rag-value"><%= result.ragReadiness.aiFriendlySchemaPercent %>%</div>
+        <div class="rag-label">Pages avec balisage FAQ/HowTo</div>
+        <div class="rag-hint">Directement consommable par les moteurs IA</div>
+      </div>
+      <div class="rag-card">
+        <div class="rag-value"><%= result.ragReadiness.pagesWithLongParagraphs.length %></div>
+        <div class="rag-label">Page(s) avec paragraphes trop longs</div>
+        <div class="rag-hint">&gt;300 mots — plus difficile à extraire pour une IA</div>
+      </div>
+    </div>
+    <% if (result.ragReadiness.pagesWithLongParagraphs.length > 0) { %>
+      <div class="rag-pages">
+        <% for (const url of result.ragReadiness.pagesWithLongParagraphs.slice(0, 10)) { %>
+          <a href="<%= url %>" target="_blank" rel="noopener">&#8599; <%= url %></a>
+        <% } %>
+        <% if (result.ragReadiness.pagesWithLongParagraphs.length > 10) { %>
+          <span class="rag-hint">+ <%= result.ragReadiness.pagesWithLongParagraphs.length - 10 %> autre(s)</span>
+        <% } %>
+      </div>
+    <% } %>
+
+    <% if (geoCitations && geoCitations.status !== 'not_requested') { %>
+    <h2>Citations Google AI Overview <span class="bonus-tag"> hors score</span></h2>
+    <p class="section-hint">
+      Verification via SerpApi : le domaine audite est-il cite comme source dans les AI Overviews pour les requetes choisies ?
+    </p>
+    <div class="geo-panel">
+      <% if (geoCitations.status === 'missing_key') { %>
+        <div class="not-measured">
+          <strong>SerpApi non configure :</strong> ajoutez <code>SERPAPI_KEY</code> dans l'environnement, puis relancez l'audit.
+          <% if (geoCitations.queries && geoCitations.queries.length) { %>
+            Requetes preparees : <code><%= geoCitations.queries.join(', ') %></code>
+          <% } %>
+        </div>
+      <% } else if (geoCitations.status === 'no_queries') { %>
+        <div class="not-measured">
+          <strong>Aucune requete GEO :</strong> ajoutez des requetes ciblees, ou laissez le crawler recuperer des titres de pages exploitables.
+        </div>
+      <% } else { %>
+        <div class="geo-summary">
+          <span class="geo-pill">Domaine : <%= geoCitations.targetDomain %></span>
+          <span class="geo-pill"><%= geoCitations.summary.checked %> requete(s)</span>
+          <span class="geo-pill"><%= geoCitations.summary.withAiOverview %> AI Overview(s)</span>
+          <span class="geo-pill"><%= geoCitations.summary.cited %> citation(s) du domaine</span>
+        </div>
+        <div class="geo-results">
+          <% for (const item of geoCitations.results) { %>
+            <div class="geo-row">
+              <div class="geo-query"><%= item.query %></div>
+              <% if (item.error) { %>
+                <div class="geo-state bad">Erreur SerpApi : <%= item.error %></div>
+              <% } else if (!item.hasAiOverview) { %>
+                <div class="geo-state">Aucun AI Overview detecte pour cette requete.</div>
+              <% } else if (item.cited) { %>
+                <div class="geo-state good">Domaine cite : <a href="<%= item.citedUrl %>" target="_blank" rel="noopener"><%= item.citedUrl %></a></div>
+              <% } else { %>
+                <div class="geo-state bad">AI Overview present, mais le domaine n'est pas cite.</div>
+              <% } %>
+              <% if (item.citationUrls && item.citationUrls.length > 0) { %>
+                <div class="geo-links">
+                  <% for (const link of item.citationUrls.slice(0, 5)) { %>
+                    <a href="<%= link %>" target="_blank" rel="noopener">&#8599; <%= link %></a>
+                  <% } %>
+                  <% if (item.citationUrls.length > 5) { %>
+                    <span class="rag-hint">+ <%= item.citationUrls.length - 5 %> autre(s) source(s)</span>
+                  <% } %>
+                </div>
+              <% } %>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+    <% } %>
 
     <h2>Détail par catégorie</h2>
     <p class="section-hint">Cliquez sur une catégorie pour voir les pages concernées par chaque problème.</p>
@@ -419,6 +527,7 @@
     </table>
     </div>
 
+    
     <div class="actions-row">
       <a class="btn" href="/">&larr; Nouvel audit</a>
       <button class="btn" onclick="window.print()">&#8681; Télécharger le rapport (PDF)</button>

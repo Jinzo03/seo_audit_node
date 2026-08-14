@@ -25,6 +25,7 @@ class Crawler {
     const parsed = new URL(this.startUrl);
     this.domain = parsed.host;
     this.scheme = parsed.protocol.replace(':', '');
+    this.allowedHosts = new Set([this.domain]);
 
     this.maxPages = maxPages;
     this.concurrency = concurrency;
@@ -48,9 +49,21 @@ class Crawler {
 
   sameDomain(url) {
     try {
-      return new URL(url).host === this.domain;
+      return this.allowedHosts.has(new URL(url).host);
     } catch (err) {
       return false;
+    }
+  }
+
+  adoptRedirectedStartUrl(finalUrl) {
+    try {
+      const parsed = new URL(finalUrl);
+      this.startUrl = finalUrl.replace(/\/$/, '');
+      this.domain = parsed.host;
+      this.scheme = parsed.protocol.replace(':', '');
+      this.allowedHosts.add(parsed.host);
+    } catch (err) {
+      // Keep the original start URL if the redirect target is malformed.
     }
   }
 
@@ -152,7 +165,14 @@ class Crawler {
       await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     }
 
-    return { resp, elapsedMs, error, redirectHops: hops, redirectLoopDetected: loopDetected };
+    return {
+      resp,
+      elapsedMs,
+      error,
+      redirectHops: hops,
+      redirectLoopDetected: loopDetected,
+      finalUrl: currentUrl,
+    };
   }
 
   // Runs fetchOne over a list of URLs, capping concurrency by chunking
@@ -189,7 +209,13 @@ class Crawler {
     data.hstsPresent = hasHsts(resp.headers);
     data.securityHeadersPresent = hasAnySecurityHeader(resp.headers);
 
-    const html = await resp.text();
+    let html;
+    try {
+      html = await resp.text();
+    } catch (err) {
+      data.error = data.error || err.message;
+      return data;
+    }
 
     if (Buffer.byteLength(html, 'utf8') > this.maxPageSizeBytes) {
       data.pageTooLarge = true;
@@ -269,8 +295,12 @@ class Crawler {
 
       for (let i = 0; i < batch.length; i += 1) {
         const url = batch[i];
-        const { resp, elapsedMs, error, redirectHops, redirectLoopDetected } = fetched[i];
-        const pageData = await this.processPage(url, resp, elapsedMs, error);
+        const { resp, elapsedMs, error, redirectHops, redirectLoopDetected, finalUrl } = fetched[i];
+        if (url === this.startUrl && finalUrl && finalUrl !== url) {
+          this.adoptRedirectedStartUrl(finalUrl);
+        }
+        if (finalUrl) this.markVisited(finalUrl);
+        const pageData = await this.processPage(finalUrl || url, resp, elapsedMs, error);
         pageData.redirectHops = redirectHops;
         pageData.redirectLoopDetected = redirectLoopDetected;
         this.results.push(pageData);

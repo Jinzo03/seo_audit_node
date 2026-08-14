@@ -1,4 +1,5 @@
 node_modules/
+.env
 seo_audit.pdf
 ~$dit_scoring_methodology.docx
 audit_scoring_methodology.docx
