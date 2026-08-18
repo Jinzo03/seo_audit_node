@@ -123,6 +123,29 @@ describe('scoreOnPage', () => {
     assert.equal(s.scoreOnPage().points, 15 - 2 - 2);
   });
 
+  test('short title and short meta description are accepted; only max length is enforced', () => {
+    const s = new AuditScoring({
+      metaTitlePresent: true, metaTitleLength: 25,
+      metaDescriptionPresent: true, metaDescriptionLength: 80,
+      h1Present: true, h1Count: 1, h1Length: 40,
+      structuredDataPresent: true,
+    });
+    assert.equal(s.scoreOnPage().points, 15);
+  });
+
+  test('title over 70 characters and meta description over 160 characters are flagged', () => {
+    const s = new AuditScoring({
+      metaTitlePresent: true, metaTitleLength: 71,
+      metaDescriptionPresent: true, metaDescriptionLength: 161,
+      h1Present: true, h1Count: 1, h1Length: 40,
+      structuredDataPresent: true,
+    });
+    const result = s.scoreOnPage();
+    assert.equal(result.points, 15 - 1 - 1);
+    assert.ok(result.issues.some((i) => i.code === 'title_length'));
+    assert.ok(result.issues.some((i) => i.code === 'description_length'));
+  });
+
   test('multiple H1 tags penalized same as missing (-2)', () => {
     const s = new AuditScoring({ metaTitlePresent: true, metaTitleLength: 45, metaDescriptionPresent: true, metaDescriptionLength: 140, h1Present: true, h1Count: 3, structuredDataPresent: true });
     assert.equal(s.scoreOnPage().points, 15 - 2);

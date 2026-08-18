@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-171 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness), no live network
+175 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -94,7 +94,7 @@ views/                  server-rendered EJS templates: a "diagnostic
                          issues (with a link to each), plus tabs to jump
                          directly between categories and a button back to
                          the results page for the same audit
-tests/                  171 tests across 26 suites
+tests/                  175 tests across 26 suites
 ```
 
 ## Findings worth knowing about
@@ -260,6 +260,38 @@ internally for CSS classes and JS filtering so nothing broke), and both
 action buttons (Nouvel audit / Télécharger le rapport) restyled to match a
 reference screenshot — solid blue, rounded, consistent treatment for both
 instead of two different visual styles.
+
+**Second encadrant feedback round - duplicate reporting and SEO length
+rules.** A real audit of darbooking.com exposed two problems that were easy
+to miss with small mocked fixtures. First, URLs that only differed by query
+parameters were treated as separate pages: for example
+`/vols-search?flightSearch=A` and `/vols-search?flightSearch=B` were both
+crawled, scored, and displayed as if they were independent pages. That
+created enormous duplicate-title / duplicate-description lists even though,
+from the audit's point of view, the page template is the same. Fixed at two
+levels: `crawler.js` now uses a query-less page identity for visited/enqueue
+checks, and `buildAuditData.js` also collapses already-collected pages by
+the same canonical page URL before counting duplicates. This second guard
+matters for older saved data and for any future caller that passes raw page
+arrays directly into scoring.
+
+Second, the title-length rule was too strict for the current validation
+criteria. The previous implementation penalized titles below 30 characters
+and above 60 characters. The encadrant clarified the intended rule: title
+maximum 70 characters, meta-description maximum 160 characters. So a title
+like `Plan du site - Darbooking` (25 characters) should not be flagged at
+all. `auditScoring.js` now only penalizes `metaTitleLength > 70` and
+`metaDescriptionLength > 160`, with no lower-bound penalty for either field.
+
+The category detail UI was also changed to match the requested duplicate
+reporting format. Instead of one huge card containing every affected URL,
+`category.ejs` now renders duplicate titles/descriptions as a table: one row
+per duplicated value, with the affected URLs grouped beside that exact
+title or description. This makes it clear which pages share which value,
+and avoids visually mixing unrelated duplicates into one unreadable list.
+Verified with new regression tests for query-parameter collapsing, short
+title acceptance, max-length enforcement, duplicate-group data, and an EJS
+render smoke test confirming the duplicate table is actually produced.
 
 **A pre-existing dead-code bug was found and fixed while touching this
 code**: `buildOnPageDataForPage`'s duplicate-content wiring compared

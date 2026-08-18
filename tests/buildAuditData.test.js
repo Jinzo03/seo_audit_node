@@ -125,9 +125,29 @@ describe('scoreSite', () => {
       robots: { isAllowed: () => true },
       startUrl: 'https://site.com/a',
     });
-    // 'Same Title Everywhere' is 22 chars (under the 30-char minimum) AND
-    // duplicated across both pages -> -1 (length) -1 (duplicate) = 13 each.
-    assert.equal(result.categories.onPage.points, 13);
+    // 'Same Title Everywhere' is duplicated across both pages. Short titles
+    // are no longer penalized; only titles over 70 characters are.
+    assert.equal(result.categories.onPage.points, 14);
+    const entry = result.categoryDetails.onPage.find((i) => i.code === 'title_duplicate');
+    assert.deepEqual(entry.duplicateGroups, [{
+      value: 'Same Title Everywhere',
+      pages: ['https://site.com/a', 'https://site.com/b'],
+    }]);
+  });
+
+  test('query-string variants are treated as the same logical page for duplicate checks', () => {
+    const pages = [
+      fakePage({ url: 'https://site.com/search?flightSearch=A', title: 'Search Results', metaDescription: 'Same search page description.' }),
+      fakePage({ url: 'https://site.com/search?flightSearch=B', title: 'Search Results', metaDescription: 'Same search page description.' }),
+    ];
+    const result = scoreSite({
+      pages,
+      sitemapResult: { found: true },
+      robots: { isAllowed: () => true },
+      startUrl: 'https://site.com/search?flightSearch=A',
+    });
+    assert.equal(result.categoryDetails.onPage.some((i) => i.code === 'title_duplicate'), false);
+    assert.equal(result.categoryDetails.onPage.some((i) => i.code === 'description_duplicate'), false);
   });
 
   test('missing HSTS and security headers on the homepage penalize technical score', () => {

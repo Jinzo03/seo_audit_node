@@ -47,6 +47,17 @@
   .affected-pages a { font-family: var(--font-mono); font-size: 12.5px; color: var(--signal); text-decoration: none; word-break: break-all; }
   .affected-pages a:hover { text-decoration: underline; }
   .site-wide { font-family: var(--font-mono); font-size: 12.5px; color: var(--slate); font-style: italic; }
+  .duplicate-table-wrap { overflow-x: auto; border: 1px solid var(--grid-line); border-radius: 6px; margin-top: 12px; }
+  .duplicate-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; background: var(--paper-raised); }
+  .duplicate-table th, .duplicate-table td { border-bottom: 1px solid var(--grid-line); border-right: 1px solid var(--grid-line); padding: 10px 12px; text-align: left; vertical-align: top; }
+  .duplicate-table tr:last-child td { border-bottom: none; }
+  .duplicate-table th:last-child, .duplicate-table td:last-child { border-right: none; }
+  .duplicate-table th { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); background: var(--paper); }
+  .duplicate-index { width: 48px; font-family: var(--font-mono); color: var(--ink-soft); }
+  .duplicate-value { width: 42%; font-weight: 500; }
+  .duplicate-urls { display: flex; flex-direction: column; gap: 6px; }
+  .duplicate-urls a { font-family: var(--font-mono); font-size: 12.5px; color: var(--signal); text-decoration: none; word-break: break-all; }
+  .duplicate-urls a:hover { text-decoration: underline; }
 
   .empty-state { background: var(--paper-raised); border: 1px solid var(--grid-line); border-radius: 8px; padding: 32px; text-align: center; color: var(--slate); font-size: 14px; }
 
@@ -90,7 +101,34 @@
             <span class="issue-points"><%= item.points %> pts</span>
           </div>
           <div class="issue-text"><%= item.text %></div>
-          <% if (item.pages && item.pages.length > 0) { %>
+          <% if (item.duplicateGroups && item.duplicateGroups.length > 0) { %>
+            <div class="duplicate-table-wrap">
+              <table class="duplicate-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th><%= item.code === 'description_duplicate' ? 'Meta description' : 'Title' %></th>
+                    <th>URLs concernés</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% item.duplicateGroups.forEach((group, index) => { %>
+                    <tr>
+                      <td class="duplicate-index"><%= index + 1 %>.</td>
+                      <td class="duplicate-value"><%= group.value %></td>
+                      <td>
+                        <div class="duplicate-urls">
+                          <% for (const url of group.pages) { %>
+                            <a href="<%= url %>" target="_blank" rel="noopener">&#8599; <%= url %></a>
+                          <% } %>
+                        </div>
+                      </td>
+                    </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </div>
+          <% } else if (item.pages && item.pages.length > 0) { %>
             <div class="affected-pages">
               <% for (const url of item.pages) { %>
                 <a href="<%= url %>" target="_blank" rel="noopener">&#8599; <%= url %></a>

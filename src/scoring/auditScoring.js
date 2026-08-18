@@ -141,14 +141,14 @@ class AuditScoring {
 
     if (!d.metaTitlePresent) {
       score -= 2; issues.push({ text: 'Meta title absent', points: -2, severity: 'WARNING', code: 'title_missing' });
-    } else if (d.metaTitleLength !== undefined && (d.metaTitleLength < 30 || d.metaTitleLength > 60)) {
+    } else if (d.metaTitleLength !== undefined && d.metaTitleLength > 70) {
       score -= 1; issues.push({ text: `Longueur du meta title non idéale (${d.metaTitleLength} caractères)`, points: -1, severity: 'NOTICE', code: 'title_length' });
     }
     if (d.metaTitleDuplicate) { score -= 1; issues.push({ text: 'Meta title dupliqué sur le site', points: -1, severity: 'NOTICE', code: 'title_duplicate' }); }
 
     if (!d.metaDescriptionPresent) {
       score -= 2; issues.push({ text: 'Meta description absente', points: -2, severity: 'WARNING', code: 'description_missing' });
-    } else if (d.metaDescriptionLength !== undefined && (d.metaDescriptionLength < 120 || d.metaDescriptionLength > 160)) {
+    } else if (d.metaDescriptionLength !== undefined && d.metaDescriptionLength > 160) {
       score -= 1; issues.push({ text: `Longueur de la meta description non idéale (${d.metaDescriptionLength} caractères)`, points: -1, severity: 'NOTICE', code: 'description_length' });
     }
     if (d.metaDescriptionDuplicate) { score -= 1; issues.push({ text: 'Meta description dupliquée sur le site', points: -1, severity: 'NOTICE', code: 'description_duplicate' }); }

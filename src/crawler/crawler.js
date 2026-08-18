@@ -9,6 +9,17 @@ const { checkCertificate } = require('./tlsCheck');
 const USER_AGENT = 'SimpleSEOAuditBot/1.0 (+internship project)'; // sent in HTTP headers
 const ROBOTS_TOKEN = 'SimpleSEOAuditBot'; // bare name for robots.txt matching
 
+function pageIdentityUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch (err) {
+    return url;
+  }
+}
+
 class Crawler {
   constructor(startUrl, options = {}) {
     const {
@@ -72,13 +83,14 @@ class Crawler {
   // ------------------------------------------------------------------
 
   markVisited(url) {
-    if (this.visited.has(url)) return false;
-    this.visited.add(url);
+    const key = pageIdentityUrl(url);
+    if (this.visited.has(key)) return false;
+    this.visited.add(key);
     return true;
   }
 
   shouldEnqueue(url) {
-    return !this.visited.has(url) && this.sameDomain(url) && this.isAllowed(url);
+    return !this.visited.has(pageIdentityUrl(url)) && this.sameDomain(url) && this.isAllowed(url);
   }
 
   // ------------------------------------------------------------------
@@ -428,4 +440,4 @@ class Crawler {
   }
 }
 
-module.exports = { Crawler, USER_AGENT, ROBOTS_TOKEN };
+module.exports = { Crawler, USER_AGENT, ROBOTS_TOKEN, pageIdentityUrl };

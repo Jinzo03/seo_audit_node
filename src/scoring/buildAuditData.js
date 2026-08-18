@@ -59,6 +59,52 @@ function countOccurrences(values) {
   return counts;
 }
 
+function canonicalPageUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch (err) {
+    return url;
+  }
+}
+
+function dedupePagesByCanonicalUrl(pages) {
+  const byUrl = new Map();
+  for (const page of pages) {
+    const key = canonicalPageUrl(page.url);
+    if (!byUrl.has(key)) byUrl.set(key, { ...page, url: key });
+  }
+  return Array.from(byUrl.values());
+}
+
+function uniqueCanonicalUrls(urls) {
+  const seen = new Set();
+  const unique = [];
+  for (const url of urls) {
+    const key = canonicalPageUrl(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(key);
+  }
+  return unique;
+}
+
+function duplicateGroupsFor(pages, field) {
+  const byValue = new Map();
+  for (const page of pages) {
+    const value = (page[field] || '').trim();
+    if (!value) continue;
+    if (!byValue.has(value)) byValue.set(value, []);
+    byValue.get(value).push(page.url);
+  }
+
+  return Array.from(byValue.entries())
+    .filter(([, urls]) => urls.length > 1)
+    .map(([value, urls]) => ({ value, pages: uniqueCanonicalUrls(urls) }));
+}
+
 function buildCrawlabilityData(pages, sitemapResult, robots, startUrl) {
   const homepage = pages.find((p) => p.url === startUrl || p.url === `${startUrl}/`) || pages[0];
   const homepageNoindex = Boolean(
@@ -289,10 +335,19 @@ function groupIssuesByCode(issuesWithUrls) {
         severity: issue.severity,
         points: issue.points,
         pages: [],
+        duplicateGroups: [],
       });
     }
     const entry = byCode.get(issue.code);
-    if (issue.pageUrl && !entry.pages.includes(issue.pageUrl)) entry.pages.push(issue.pageUrl);
+    if (issue.pageUrl) {
+      const pageUrl = canonicalPageUrl(issue.pageUrl);
+      if (!entry.pages.includes(pageUrl)) entry.pages.push(pageUrl);
+    }
+    for (const group of issue.duplicateGroups || []) {
+      if (!entry.duplicateGroups.some((existing) => existing.value === group.value)) {
+        entry.duplicateGroups.push(group);
+      }
+    }
   }
   return Array.from(byCode.values()).sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
 }
@@ -305,20 +360,25 @@ function groupIssuesByCode(issuesWithUrls) {
 function scoreSite({
   pages, sitemapResult, robots, startUrl, sslResult, browserResults, crawlTimedOut = false, duplicateContentPageCount = 0,
 }) {
-  const htmlPages = pages.filter((p) => p.title !== undefined);
+  const logicalStartUrl = canonicalPageUrl(startUrl);
+  const logicalPages = dedupePagesByCanonicalUrl(pages);
+  const htmlPages = logicalPages.filter((p) => p.title !== undefined);
 
   const titleCounts = countOccurrences(htmlPages.map((p) => p.title).filter(Boolean));
   const descriptionCounts = countOccurrences(htmlPages.map((p) => p.metaDescription).filter(Boolean));
+  const titleDuplicateGroups = duplicateGroupsFor(htmlPages, 'title');
+  const descriptionDuplicateGroups = duplicateGroupsFor(htmlPages, 'metaDescription');
 
   const possibleSpaPages = htmlPages.filter((p) => p.possibleSpa).map((p) => p.url);
 
-  const crawlabilityData = buildCrawlabilityData(pages, sitemapResult, robots, startUrl);
-  const technicalData = buildTechnicalData(pages, sslResult, htmlPages);
+  const crawlabilityData = buildCrawlabilityData(logicalPages, sitemapResult, robots, logicalStartUrl);
+  const technicalData = buildTechnicalData(logicalPages, sslResult, htmlPages);
 
   // Accept either a Map or a plain { url: result } object, keyed by page URL.
-  const browserResultsMap = browserResults instanceof Map
-    ? browserResults
-    : new Map(Object.entries(browserResults || {}));
+  const rawBrowserResults = browserResults instanceof Map
+    ? Array.from(browserResults.entries())
+    : Object.entries(browserResults || {});
+  const browserResultsMap = new Map(rawBrowserResults.map(([url, result]) => [canonicalPageUrl(url), result]));
 
   const onPageScores = htmlPages.map((p) => {
     const data = buildOnPageDataForPage(p, titleCounts, descriptionCounts);
@@ -380,15 +440,23 @@ function scoreSite({
   // for the main table, not a limit on what the drill-down page can show.
   const categoryDetails = {
     crawlability: groupIssuesByCode(
-      crawlability.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, pages, htmlPages, startUrl) }))
+      crawlability.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, logicalPages, htmlPages, logicalStartUrl) }))
         .flatMap((issue) => (issue.pages === null ? [{ ...issue, pageUrl: null }] : issue.pages.map((url) => ({ ...issue, pageUrl: url })))),
     ),
     technical: groupIssuesByCode(
-      technical.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, pages, htmlPages, startUrl) }))
+      technical.issues.map((issue) => ({ ...issue, pages: affectedPagesForCode(issue.code, logicalPages, htmlPages, logicalStartUrl) }))
         .flatMap((issue) => (issue.pages === null ? [{ ...issue, pageUrl: null }] : issue.pages.map((url) => ({ ...issue, pageUrl: url })))),
     ),
     performance: groupIssuesByCode(performanceScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
-    onPage: groupIssuesByCode(onPageScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
+    onPage: groupIssuesByCode(onPageScores.flatMap((r) => r.issues.map((issue) => ({
+      ...issue,
+      pageUrl: r.pageUrl,
+      duplicateGroups: issue.code === 'title_duplicate'
+        ? titleDuplicateGroups
+        : issue.code === 'description_duplicate'
+          ? descriptionDuplicateGroups
+          : undefined,
+    })))),
     mobile: groupIssuesByCode(mobileScores.flatMap((r) => r.issues.map((issue) => ({ ...issue, pageUrl: r.pageUrl })))),
   };
 
@@ -431,5 +499,7 @@ module.exports = {
   buildMobileDataForPage,
   buildPerformanceDataForPage,
   buildRagReadiness,
+  canonicalPageUrl,
+  dedupePagesByCanonicalUrl,
   NOT_YET_MEASURED,
 };

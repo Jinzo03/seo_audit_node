@@ -212,6 +212,13 @@ describe('duplicate detection', () => {
     assert.equal(crawler.shouldEnqueue('https://site.com/page'), false);
   });
 
+  test('query-string variants count as the same page for crawling', () => {
+    const crawler = new Crawler('https://site.com');
+    assert.equal(crawler.markVisited('https://site.com/search?flightSearch=A'), true);
+    assert.equal(crawler.markVisited('https://site.com/search?flightSearch=B'), false);
+    assert.equal(crawler.shouldEnqueue('https://site.com/search?flightSearch=C'), false);
+  });
+
   test('unvisited same-domain URL should enqueue', () => {
     const crawler = new Crawler('https://site.com');
     assert.equal(crawler.shouldEnqueue('https://site.com/new-page'), true);
