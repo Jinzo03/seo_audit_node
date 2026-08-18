@@ -346,21 +346,8 @@
               <% } else { %>
                 <div class="geo-state bad">AI Overview present, mais le domaine n'est pas cite.</div>
               <% } %>
-              
-              <!-- Display self-citations separately if any -->
-              <% if (item.selfCitations && item.selfCitations.length > 0) { %>
-                <div class="geo-links self-citations">
-                  <strong>Auto-citations :</strong>
-                  <% for (const link of item.selfCitations.slice(0, 3)) { %>
-                    <a href="<%= link %>" target="_blank" rel="noopener">&#8599; <%= link %></a>
-                  <% } %>
-                </div>
-              <% } %>
-              
-              <!-- Display competitor citations (citationUrls already filtered) -->
               <% if (item.citationUrls && item.citationUrls.length > 0) { %>
-                <div class="geo-links competitor-citations">
-                  <strong>Concurrents cites :</strong>
+                <div class="geo-links">
                   <% for (const link of item.citationUrls.slice(0, 5)) { %>
                     <a href="<%= link %>" target="_blank" rel="noopener">&#8599; <%= link %></a>
                   <% } %>
@@ -374,8 +361,11 @@
         </div>
       <% } %>
     </div>
+    <% } %>
 
     <h2>Détail par catégorie</h2>
+    <p class="section-hint">Cliquez sur une catégorie pour voir les pages concernées par chaque problème.</p>
+    <div class="subscores">
       <% for (const key of Object.keys(result.percentages)) { %>
         <% if (auditId) { %>
         <a class="subscore-card" href="/report/<%= auditId %>/category/<%= key %>">
