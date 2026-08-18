@@ -160,23 +160,30 @@ async function checkCitations(queries, domain, apiKey, options = {}) {
       const aiOverview = await fetchAiOverview(query, apiKey, { timeoutMs, hl, gl });
       if (!aiOverview) {
         results.push({
-          query, hasAiOverview: false, cited: false, citedUrl: null, citationUrls: [], error: null,
+          query, hasAiOverview: false, cited: false, citedUrl: null, citationUrls: [], selfCitations: [], competitorCitations: [], error: null,
         });
       } else {
         const links = extractCitationLinksFromAiOverview(aiOverview);
         const citedLink = links.find((link) => isDomainMatch(link, domain));
+        
+        // Separate citations into self-citations (target domain) and competitor citations
+        const selfCitations = links.filter((link) => isDomainMatch(link, domain));
+        const competitorCitations = links.filter((link) => !isDomainMatch(link, domain));
+        
         results.push({
           query,
           hasAiOverview: true,
           cited: Boolean(citedLink),
           citedUrl: citedLink || null,
-          citationUrls: links,
+          citationUrls: competitorCitations, // Default: only competitor URLs (excluding target domain)
+          selfCitations,
+          competitorCitations,
           error: null,
         });
       }
     } catch (err) {
       results.push({
-        query, hasAiOverview: false, cited: false, citedUrl: null, citationUrls: [], error: err.message,
+        query, hasAiOverview: false, cited: false, citedUrl: null, citationUrls: [], selfCitations: [], competitorCitations: [], error: err.message,
       });
     }
 
