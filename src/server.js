@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const db = initDb();
 
-const BROWSER_SAMPLE_SIZE = 5;
+const BROWSER_SAMPLE_SIZE = 10;
 
 // Runs the Playwright-based browser audit on a sample of pages. Wrapped so
 // that if Playwright/Chromium isn't installed in a given deployment (e.g. a
