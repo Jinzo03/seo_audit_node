@@ -220,6 +220,59 @@
   button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   button .arrow { font-size: 13px; }
 
+  .loading-view {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    place-items: center;
+    padding: 24px;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  body.audit-loading { overflow: hidden; }
+  body.audit-loading .loading-view { display: grid; }
+  .loading-panel {
+    width: min(420px, 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+  }
+  .loading-spinner {
+    width: 72px;
+    height: 72px;
+    border: 6px solid var(--grid-line);
+    border-top-color: var(--signal);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-title {
+    margin: 6px 0 0;
+    font-size: 28px;
+    line-height: 1.15;
+    font-weight: 700;
+  }
+  .loading-copy {
+    margin: 0;
+    max-width: 38ch;
+    color: var(--ink-soft);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .cancel-button {
+    margin-top: 8px;
+    background: var(--paper-raised);
+    color: var(--ink);
+    border: 1px solid var(--grid-line);
+  }
+  .cancel-button:hover { background: var(--ink); color: #fff; }
+
   footer {
     position: relative;
     z-index: 2;
@@ -235,6 +288,7 @@
     main { padding-top: 48px; }
     h1 { font-size: 27px; }
     .topbar { padding: 12px 18px; }
+    .loading-title { font-size: 24px; }
   }
 </style>
 </head>
@@ -263,7 +317,7 @@
       <span class="chip"><b>10%</b> Mobile &amp; UX</span>
     </div>
 
-    <form class="panel" action="/audit" method="post">
+    <form class="panel" action="/audit" method="post" id="auditForm">
       <div class="field">
         <label class="panel-label" for="url">URL Cible</label>
         <input type="text" id="url" name="url" placeholder="https://example.com" required>
@@ -290,5 +344,61 @@
   </main>
 
   <footer>Historique conservé par domaine · Playwright pour Performance &amp; Mobile si disponible</footer>
+  <section class="loading-view" aria-live="polite" aria-hidden="true" id="loadingView">
+    <div class="loading-panel">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <h2 class="loading-title">Audit en cours</h2>
+      <p class="loading-copy">Le crawler analyse les pages, les performances et les signaux SEO. Cette etape peut prendre quelque temps.</p>
+      <button type="button" class="cancel-button" id="cancelAudit">Annuler</button>
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const form = document.getElementById('auditForm');
+      const loadingView = document.getElementById('loadingView');
+      const cancelButton = document.getElementById('cancelAudit');
+      let controller = null;
+
+      function showLoading() {
+        document.body.classList.add('audit-loading');
+        loadingView.setAttribute('aria-hidden', 'false');
+      }
+
+      function hideLoading() {
+        document.body.classList.remove('audit-loading');
+        loadingView.setAttribute('aria-hidden', 'true');
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        controller = new AbortController();
+        showLoading();
+
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST',
+            body: new URLSearchParams(new FormData(form)),
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || 'Audit failed');
+          window.location.href = payload.reportUrl;
+        } catch (err) {
+          if (err.name !== 'AbortError') alert(err.message);
+          hideLoading();
+        } finally {
+          controller = null;
+        }
+      });
+
+      cancelButton.addEventListener('click', () => {
+        if (controller) controller.abort();
+        hideLoading();
+      });
+    })();
+  </script>
 </body>
 </html>

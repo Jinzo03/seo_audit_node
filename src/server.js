@@ -115,8 +115,16 @@ app.post('/audit', async (req, res) => {
       return res.status(500).send('Audit ran but could not be saved — please try again.');
     }
 
-    res.redirect(`/report/${auditId}`);
+    const reportUrl = `/report/${auditId}`;
+    if (req.get('Accept') && req.get('Accept').includes('application/json')) {
+      return res.json({ reportUrl });
+    }
+
+    res.redirect(reportUrl);
   } catch (err) {
+    if (req.get('Accept') && req.get('Accept').includes('application/json')) {
+      return res.status(500).json({ error: `Audit failed: ${err.message}` });
+    }
     res.status(500).send(`Audit failed: ${err.message}`);
   }
 });
