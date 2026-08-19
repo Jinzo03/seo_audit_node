@@ -324,7 +324,7 @@
       </div>
       <div class="field">
         <label class="panel-label" for="maxPages">Nombre maximum de pages à crawler</label>
-        <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="200">
+        <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="5000">
       </div>
       <div class="field">
         <label class="check-field" for="runGeo">
@@ -349,7 +349,7 @@
       <div class="loading-spinner" aria-hidden="true"></div>
       <h2 class="loading-title">Audit en cours</h2>
       <p class="loading-copy">Le crawler analyse les pages, les performances et les signaux SEO. Cette etape peut prendre quelque temps.</p>
-      <button type="button" class="cancel-button" id="cancelAudit">Annuler</button>
+      <button type="button" class="cancel-button" id="cancelAudit">Annuler l'attente</button>
     </div>
   </section>
 
@@ -359,6 +359,7 @@
       const loadingView = document.getElementById('loadingView');
       const cancelButton = document.getElementById('cancelAudit');
       let controller = null;
+      let polling = false;
 
       function showLoading() {
         document.body.classList.add('audit-loading');
@@ -373,6 +374,7 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         controller = new AbortController();
+        polling = true;
         showLoading();
 
         try {
@@ -385,7 +387,21 @@
 
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.error || 'Audit failed');
-          window.location.href = payload.reportUrl;
+
+          while (polling) {
+            const statusResponse = await fetch(payload.statusUrl, {
+              headers: { Accept: 'application/json' },
+              signal: controller.signal,
+            });
+            const status = await statusResponse.json().catch(() => ({}));
+            if (!statusResponse.ok) throw new Error(status.error || 'Audit status unavailable');
+            if (status.status === 'completed') {
+              window.location.href = status.reportUrl;
+              return;
+            }
+            if (status.status === 'failed') throw new Error(status.error || 'Audit failed');
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
         } catch (err) {
           if (err.name !== 'AbortError') alert(err.message);
           hideLoading();
@@ -395,6 +411,7 @@
       });
 
       cancelButton.addEventListener('click', () => {
+        polling = false;
         if (controller) controller.abort();
         hideLoading();
       });

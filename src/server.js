@@ -16,24 +16,20 @@ app.use(express.urlencoded({ extended: true }));
 const db = initDb();
 
 const BROWSER_SAMPLE_SIZE = 10;
+const auditJobs = new Map();
+let nextJobId = 1;
 
-// Runs the Playwright-based browser audit on a sample of pages. Wrapped so
-// that if Playwright/Chromium isn't installed in a given deployment (e.g. a
-// grading environment that only ran `npm install`, not
-// `npx playwright install chromium`), the whole audit degrades gracefully
-// to the Week 1/2 placeholder behavior instead of crashing the request.
+// Runs browser-only checks on a small sample. If Chromium is unavailable,
+// the report still completes with neutral placeholders for those metrics.
 async function runSampledBrowserAudits(pages, startUrl) {
   const sample = selectPagesForBrowserAudit(pages, startUrl, BROWSER_SAMPLE_SIZE);
   if (sample.length === 0) return {};
 
   let browserModule;
   try {
-    // Required lazily so a missing Playwright install only breaks this
-    // function, not the whole server (which would fail at require-time
-    // if this were a top-level import).
     browserModule = require('./performance/browserAudit');
   } catch (err) {
-    console.warn('Playwright not available — skipping browser-based checks:', err.message);
+    console.warn('Playwright not available - skipping browser-based checks:', err.message);
     return {};
   }
 
@@ -41,17 +37,13 @@ async function runSampledBrowserAudits(pages, startUrl) {
   try {
     browser = await browserModule.launchSharedBrowser();
   } catch (err) {
-    console.warn('Could not launch a browser — skipping browser-based checks:', err.message);
+    console.warn('Could not launch a browser - skipping browser-based checks:', err.message);
     console.warn('Run `npx playwright install chromium` to enable Performance/Mobile checks.');
     return {};
   }
 
   const results = {};
   try {
-    // Sequential, not parallel: each Chromium page is memory/CPU-heavy, and
-    // a sample is only 5 pages, so the time cost of doing them one at a
-    // time is acceptable for now. Worth revisiting with limited concurrency
-    // if the sample size grows.
     for (const page of sample) {
       try {
         results[page.url] = await browserModule.runBrowserAudit(page.url, { browser });
@@ -66,24 +58,52 @@ async function runSampledBrowserAudits(pages, startUrl) {
   return results;
 }
 
-app.get('/', (req, res) => {
-  res.render('index');
-});
+function publicJobState(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    url: job.url,
+    maxPages: job.maxPages,
+    pagesCrawled: job.pagesCrawled,
+    reportUrl: job.reportUrl,
+    error: job.error,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
 
-app.post('/audit', async (req, res) => {
-  let { url, maxPages } = req.body;
-  if (!url) return res.status(400).send('Missing url');
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  maxPages = Math.min(Math.max(parseInt(maxPages, 10) || 20, 1), 200);
-  const geoRequested = req.body.runGeo === 'on';
-  const geoQueries = String(req.body.geoQueries || '')
-    .split(/\r?\n/)
-    .map((q) => q.trim())
-    .filter(Boolean);
+function createAuditJob(input) {
+  const now = Date.now();
+  const job = {
+    id: String(nextJobId),
+    status: 'queued',
+    url: input.url,
+    maxPages: input.maxPages,
+    geoRequested: input.geoRequested,
+    geoQueries: input.geoQueries,
+    pagesCrawled: 0,
+    reportUrl: null,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  nextJobId += 1;
+  auditJobs.set(job.id, job);
+  setImmediate(() => runAuditJob(job));
+  return job;
+}
+
+async function runAuditJob(job) {
+  job.status = 'running';
+  job.updatedAt = Date.now();
 
   try {
-    const crawler = new Crawler(url, { maxPages, delayMs: 100 });
+    const crawler = new Crawler(job.url, { maxPages: job.maxPages, delayMs: 100 });
     const pages = await crawler.crawl();
+    job.pagesCrawled = pages.length;
+    job.updatedAt = Date.now();
+
     const [sitemapResult, sslResult] = await Promise.all([
       crawler.checkSitemap(),
       crawler.checkSsl(),
@@ -91,42 +111,70 @@ app.post('/audit', async (req, res) => {
 
     const browserResults = await runSampledBrowserAudits(pages, crawler.startUrl);
     const geoCitations = await runCitationAudit({
-      requested: geoRequested,
-      userQueries: geoQueries,
+      requested: job.geoRequested,
+      userQueries: job.geoQueries,
       pages,
       domain: crawler.domain,
       options: { maxTotal: 5, maxAuto: 3 },
     });
 
     const result = scoreSite({
-      pages, sitemapResult, sslResult, browserResults, robots: crawler.robots, startUrl: crawler.startUrl,
+      pages,
+      sitemapResult,
+      sslResult,
+      browserResults,
+      robots: crawler.robots,
+      startUrl: crawler.startUrl,
       crawlTimedOut: crawler.crawlTimedOut,
     });
 
-    // Persist before redirecting — /report/:id is the actual results page now.
-    let auditId = null;
-    try {
-      const saved = saveAuditRun(db, {
-        startUrl: crawler.startUrl, pagesCrawled: pages.length, scoreResult: result, browserResults, geoCitations,
-      });
-      auditId = saved.id;
-    } catch (err) {
-      console.warn('Could not save audit run:', err.message);
-      return res.status(500).send('Audit ran but could not be saved — please try again.');
-    }
+    const saved = saveAuditRun(db, {
+      startUrl: crawler.startUrl,
+      pagesCrawled: pages.length,
+      scoreResult: result,
+      browserResults,
+      geoCitations,
+    });
 
-    const reportUrl = `/report/${auditId}`;
-    if (req.get('Accept') && req.get('Accept').includes('application/json')) {
-      return res.json({ reportUrl });
-    }
-
-    res.redirect(reportUrl);
+    job.status = 'completed';
+    job.pagesCrawled = pages.length;
+    job.reportUrl = `/report/${saved.id}`;
+    job.updatedAt = Date.now();
   } catch (err) {
-    if (req.get('Accept') && req.get('Accept').includes('application/json')) {
-      return res.status(500).json({ error: `Audit failed: ${err.message}` });
-    }
-    res.status(500).send(`Audit failed: ${err.message}`);
+    job.status = 'failed';
+    job.error = `Audit failed: ${err.message}`;
+    job.updatedAt = Date.now();
+    console.warn(`Audit job ${job.id} failed:`, err.message);
   }
+}
+
+app.get('/', (req, res) => {
+  res.render('index');
+});
+
+app.post('/audit', (req, res) => {
+  let { url, maxPages } = req.body;
+  if (!url) return res.status(400).send('Missing url');
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  maxPages = Math.min(Math.max(parseInt(maxPages, 10) || 20, 1), 5000);
+  const geoRequested = req.body.runGeo === 'on';
+  const geoQueries = String(req.body.geoQueries || '')
+    .split(/\r?\n/)
+    .map((q) => q.trim())
+    .filter(Boolean);
+
+  const job = createAuditJob({ url, maxPages, geoRequested, geoQueries });
+  if (req.get('Accept') && req.get('Accept').includes('application/json')) {
+    return res.status(202).json({ jobId: job.id, statusUrl: `/audit/jobs/${job.id}` });
+  }
+
+  res.status(202).send(`Audit started. Job id: ${job.id}`);
+});
+
+app.get('/audit/jobs/:id', (req, res) => {
+  const job = auditJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Audit job not found' });
+  res.json(publicJobState(job));
 });
 
 app.get('/report/:id', (req, res) => {
@@ -134,7 +182,7 @@ app.get('/report/:id', (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).send('Invalid report id');
 
   const audit = getAuditById(db, id);
-  if (!audit) return res.status(404).send('Audit not found — it may have been run on a different server instance.');
+  if (!audit) return res.status(404).send('Audit not found - it may have been run on a different server instance.');
 
   let history = [];
   try {
@@ -164,7 +212,7 @@ app.get('/report/:id/category/:categoryKey', (req, res) => {
   }
 
   const audit = getAuditById(db, id);
-  if (!audit) return res.status(404).send('Audit not found — it may have been run on a different server instance.');
+  if (!audit) return res.status(404).send('Audit not found - it may have been run on a different server instance.');
 
   const items = audit.result.categoryDetails[categoryKey] || [];
   res.render('category', { audit, auditId: id, categoryKey, items, validKeys });
@@ -175,4 +223,9 @@ if (require.main === module) {
   app.listen(PORT, () => console.log(`Listening on http://localhost:${PORT}`));
 }
 
-module.exports = { app, runSampledBrowserAudits };
+module.exports = {
+  app,
+  runSampledBrowserAudits,
+  auditJobs,
+  createAuditJob,
+};

@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-175 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness), no live network
+177 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness + background audit jobs), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -76,13 +76,14 @@ src/
                           issue detail as JSON) and serves both the
                           historical trend view and the category drill-down
                           page
-  server.js             Express app; POST /audit crawls, scores, saves,
-                         and redirects to GET /report/:id — the actual
-                         results page, reloadable and linkable, not just a
-                         POST response. Also serves the category drill-down
-                         route (GET /report/:id/category/:key), with a
-                         graceful fallback if Playwright/Chromium isn't
-                         available for the browser audit step
+  server.js             Express app; POST /audit starts a background audit
+                         job and returns immediately. GET /audit/jobs/:id
+                         exposes status for polling, and completed jobs
+                         point to GET /report/:id, the actual results page,
+                         reloadable and linkable. Also serves the category
+                         drill-down route (GET /report/:id/category/:key),
+                         with a graceful fallback if Playwright/Chromium
+                         isn't available for the browser audit step
 views/                  server-rendered EJS templates: a "diagnostic
                          console" visual design (IBM Plex Sans/Mono, ink/
                          paper/signal palette, animated scan line).
@@ -94,7 +95,7 @@ views/                  server-rendered EJS templates: a "diagnostic
                          issues (with a link to each), plus tabs to jump
                          directly between categories and a button back to
                          the results page for the same audit
-tests/                  175 tests across 26 suites
+tests/                  177 tests across 27 suites
 ```
 
 ## Findings worth knowing about
@@ -292,6 +293,42 @@ and avoids visually mixing unrelated duplicates into one unreadable list.
 Verified with new regression tests for query-parameter collapsing, short
 title acceptance, max-length enforcement, duplicate-group data, and an EJS
 render smoke test confirming the duplicate table is actually produced.
+
+**Third encadrant feedback round - long crawls need background jobs before
+homepage statistics.** The 4,000-page request exposed an architectural
+problem rather than a pure crawler problem. Internally, the crawler loop is
+linear and already uses a visited set, batching, per-request timeouts, and a
+crawl-level deadline, so there is no obvious quadratic bottleneck in the
+crawling algorithm itself. The fragile part was the HTTP lifecycle:
+`POST /audit` used to do the entire crawl, browser sample, GEO checks,
+scoring, SQLite save, and redirect inside one request. For a large content
+site, that means the browser tab is waiting on a single long-running
+request for many minutes. Closing the tab, cancelling the loading screen,
+or later interacting with homepage history/modals would all be tied to that
+same request/response flow.
+
+Fixed first as infrastructure, deliberately before building the homepage
+history/statistics UI. `server.js` now starts an in-memory background job
+from `POST /audit` and immediately returns `202 Accepted` with a
+`statusUrl`. The actual crawl continues server-side in `runAuditJob()`, then
+saves the finished report and attaches `/report/:id` to the job once it is
+complete. A new `GET /audit/jobs/:id` endpoint exposes `queued` / `running`
+/ `completed` / `failed` state plus the report URL, so the front end can
+poll instead of holding one giant request open.
+
+The loading screen in `index.ejs` was adjusted to use that polling model.
+Submitting the audit form now shows "Audit en cours", starts the job, polls
+`/audit/jobs/:id`, and redirects only when the job returns a report URL. The
+button is intentionally labelled `Annuler l'attente`: it stops the browser
+from waiting and hides the loading view, but it does not kill the server-side
+crawl. That matches the encadrant's requirement that user interaction should
+not interrupt an audit already running in the background. The chosen job
+store is intentionally lightweight and in-memory, proportional to this
+project's scope; it survives normal page navigation and UI interaction, but
+not a Node server restart. Verified with `tests/serverJobs.test.js`, which
+starts a real local target site, posts to `/audit`, receives a `202`, polls
+the status endpoint, and confirms the job eventually produces a real
+`/report/:id`.
 
 **A pre-existing dead-code bug was found and fixed while touching this
 code**: `buildOnPageDataForPage`'s duplicate-content wiring compared
