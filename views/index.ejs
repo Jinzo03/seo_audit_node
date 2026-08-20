@@ -771,7 +771,7 @@
                 <p class="run-url">${escapeHtml(run.startUrl)}</p>
                 <p class="run-date">${formatDate(run.runAt)} - ${run.pagesCrawled} page${run.pagesCrawled > 1 ? 's' : ''} - ${run.totalIssues} probleme${run.totalIssues > 1 ? 's' : ''}</p>
               </div>
-              <a class="button-link secondary-button" href="${run.reportUrl}">Voir</a>
+              <a class="button-link secondary-button" href="${run.reportUrl}" target="_blank" rel="noopener noreferrer">Voir</a>
             </div>
           `).join('');
 

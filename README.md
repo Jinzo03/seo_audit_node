@@ -195,10 +195,13 @@ button — no way back to the results just seen, and no way to jump between
 categories without going back through results each time. The actual cause:
 `POST /audit` rendered `results.ejs` directly as the response body, so
 there was never a stable, reloadable URL for it — nothing to link back to.
-Fixed properly rather than patched around: `POST /audit` now saves the
-run and redirects (302) to `GET /report/:id`, which is the real results
-page — reloadable, linkable, bookmarkable. The SQLite schema was extended
-to store the *entire* `scoreResult` (not just `categoryDetails` as before)
+Fixed properly rather than patched around: completed audits are saved and
+served from `GET /report/:id`, which is the real results page — reloadable,
+linkable, bookmarkable. At the time this was first implemented,
+`POST /audit` redirected there directly; after the later background-job
+change, `POST /audit` returns a job status URL instead, and the UI offers
+the report link once the job completes. The SQLite schema was extended to
+store the *entire* `scoreResult` (not just `categoryDetails` as before)
 plus `browserResults` as JSON, which is what makes reconstructing the full
 results page from just an id possible. The crawled `pages` array itself is
 deliberately NOT stored — `results.ejs` only ever reads `pages.length`,
@@ -207,9 +210,9 @@ full array would've been pure overhead. `category.ejs` now has a
 "Retour aux résultats" button (linking to `/report/:id`) and a row of tabs
 for all five categories, so switching from one category's problems to
 another's is one click instead of a round trip through results each time.
-Verified through real HTTP requests end to end: audit → redirect → results
-→ category → tab-switch to a different category → back button — all
-followed and confirmed, not just written and assumed.
+Verified through real HTTP requests end to end when originally built:
+audit → report → category → tab-switch to a different category → back
+button — all followed and confirmed, not just written and assumed.
 
 **Encadrant feedback round — four requests, all addressed:**
 
