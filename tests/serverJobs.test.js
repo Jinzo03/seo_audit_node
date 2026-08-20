@@ -68,6 +68,14 @@ describe('background audit jobs', () => {
       assert.equal(completed.status, 'completed');
       assert.equal(completed.pagesCrawled, 1);
       assert.match(completed.reportUrl, /^\/report\/\d+$/);
+
+      const domain = encodeURIComponent(`127.0.0.1:${targetPort}`);
+      const domainResponse = await fetch(`http://127.0.0.1:${appPort}/audit/domains/${domain}`);
+      assert.equal(domainResponse.status, 200);
+      const domainStats = await domainResponse.json();
+      assert.equal(domainStats.domain, `127.0.0.1:${targetPort}`);
+      assert.ok(domainStats.audit_count >= 1);
+      assert.match(domainStats.history[0].reportUrl, /^\/report\/\d+$/);
     } finally {
       await close(appServer);
       await close(target);
@@ -82,6 +90,19 @@ describe('background audit jobs', () => {
       assert.equal(response.status, 404);
       const payload = await response.json();
       assert.equal(payload.error, 'Audit job not found');
+    } finally {
+      await close(appServer);
+    }
+  });
+
+  test('GET /audit/domains/:domain returns 404 for an unknown domain', async () => {
+    const appServer = http.createServer(app);
+    const appPort = await listen(appServer);
+    try {
+      const response = await fetch(`http://127.0.0.1:${appPort}/audit/domains/missing.example`);
+      assert.equal(response.status, 404);
+      const payload = await response.json();
+      assert.equal(payload.error, 'Audit domain not found');
     } finally {
       await close(appServer);
     }

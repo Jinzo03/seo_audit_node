@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Audit Site — Scoring SEO sur 100</title>
+<title>Audit Site - Scoring SEO sur 100</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -23,6 +23,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
 
   body {
     margin: 0;
@@ -54,7 +55,7 @@
     100% { transform: translateY(100vh); opacity: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .scan-line, .status-dot { animation: none; }
+    .scan-line, .status-dot, .spinner { animation: none; }
   }
 
   .topbar {
@@ -96,11 +97,14 @@
   main {
     position: relative;
     z-index: 2;
-    max-width: 640px;
+    max-width: 1120px;
     margin: 0 auto;
-    padding: 72px 24px 48px;
+    padding: 56px 24px 48px;
   }
-
+  .intro {
+    max-width: 720px;
+    margin-bottom: 30px;
+  }
   .eyebrow {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -110,47 +114,51 @@
     color: var(--signal);
     margin: 0 0 14px;
   }
-
   h1 {
     font-size: 34px;
     font-weight: 700;
     line-height: 1.15;
-    letter-spacing: -0.01em;
     margin: 0 0 16px;
   }
-
   .lede {
     color: var(--ink-soft);
     font-size: 15px;
     line-height: 1.6;
-    margin: 0 0 24px;
-    max-width: 50ch;
+    margin: 0;
+    max-width: 62ch;
   }
 
-  .weights {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 0 0 40px;
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
   }
-  .chip {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.03em;
-    background: var(--paper-raised);
-    border: 1px solid var(--grid-line);
-    border-radius: 4px;
-    padding: 6px 10px;
-    color: var(--ink-soft);
-  }
-  .chip b { color: var(--ink); font-weight: 600; }
-
   .panel {
     background: var(--paper-raised);
     border: 1px solid var(--grid-line);
-    border-radius: 10px;
-    padding: 28px;
+    border-radius: 8px;
+    padding: 24px;
     box-shadow: 0 1px 2px rgba(18, 21, 26, 0.04), 0 8px 24px rgba(18, 21, 26, 0.05);
+  }
+  .panel + .panel { margin-top: 18px; }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-size: 18px;
+    line-height: 1.25;
+    margin: 0;
+  }
+  .muted {
+    color: var(--slate);
+    font-size: 13px;
+    line-height: 1.45;
+    margin: 0;
   }
   .panel-label {
     font-family: var(--font-mono);
@@ -162,8 +170,8 @@
     display: block;
     margin-bottom: 8px;
   }
-  .field { margin-bottom: 20px; }
-  .field:last-of-type { margin-bottom: 26px; }
+  .field { margin-bottom: 18px; }
+  .field:last-of-type { margin-bottom: 24px; }
 
   input[type="text"], input[type="number"], textarea {
     width: 100%;
@@ -198,97 +206,287 @@
   .check-title { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink); }
   .check-hint { font-size: 12px; color: var(--slate); line-height: 1.4; }
 
-  button {
+  button, .button-link {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
+    text-decoration: none;
     background: var(--ink);
     color: #fff;
-    border: none;
+    border: 1px solid var(--ink);
     border-radius: 6px;
-    padding: 13px 22px;
+    padding: 12px 16px;
     cursor: pointer;
-    transition: background 0.15s ease, transform 0.1s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
   }
-  button:hover { background: var(--signal); }
-  button:active { transform: translateY(1px); }
-  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-  button .arrow { font-size: 13px; }
+  button:hover, .button-link:hover { background: var(--signal); border-color: var(--signal); }
+  button:active, .button-link:active { transform: translateY(1px); }
+  button:focus-visible, .button-link:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .secondary-button {
+    background: var(--paper-raised);
+    color: var(--ink);
+    border-color: var(--grid-line);
+  }
+  .secondary-button:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
 
-  .loading-view {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
+  .audit-status {
     display: none;
-    place-items: center;
-    padding: 24px;
-    background-color: var(--paper);
-    background-image:
-      linear-gradient(var(--grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-    background-size: 32px 32px;
+    border-left: 3px solid var(--signal);
   }
-  body.audit-loading { overflow: hidden; }
-  body.audit-loading .loading-view { display: grid; }
-  .loading-panel {
-    width: min(420px, 100%);
+  .audit-status.visible { display: block; }
+  .status-row {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    text-align: center;
-    gap: 16px;
+    gap: 12px;
+    margin-bottom: 12px;
   }
-  .loading-spinner {
-    width: 72px;
-    height: 72px;
-    border: 6px solid var(--grid-line);
+  .spinner {
+    width: 30px;
+    height: 30px;
+    border: 4px solid var(--grid-line);
     border-top-color: var(--signal);
     border-radius: 50%;
     animation: spin 0.9s linear infinite;
+    flex: 0 0 auto;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-title {
-    margin: 6px 0 0;
-    font-size: 28px;
-    line-height: 1.15;
+  .status-title {
+    margin: 0;
+    font-size: 15px;
     font-weight: 700;
   }
-  .loading-copy {
-    margin: 0;
-    max-width: 38ch;
-    color: var(--ink-soft);
-    font-size: 14px;
-    line-height: 1.55;
+  .status-meta {
+    margin: 2px 0 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--slate);
   }
-  .cancel-button {
-    margin-top: 8px;
-    background: var(--paper-raised);
+
+  .domain-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 10px;
+  }
+  .domain-button {
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 76px;
+    padding: 13px 14px;
+    text-align: left;
+    background: var(--paper);
     color: var(--ink);
-    border: 1px solid var(--grid-line);
+    border-color: var(--grid-line);
+    text-transform: none;
+    letter-spacing: 0;
   }
-  .cancel-button:hover { background: var(--ink); color: #fff; }
+  .domain-button:hover { color: #fff; }
+  .domain-name {
+    display: block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .domain-meta {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--slate);
+  }
+  .domain-button:hover .domain-meta { color: #dfe5ff; }
+  .domain-button.hidden-domain { display: none; }
+  .show-more-row {
+    margin-top: 14px;
+    display: flex;
+    justify-content: flex-start;
+  }
+  .empty-state {
+    margin: 0;
+    padding: 18px;
+    border: 1px dashed var(--grid-line);
+    border-radius: 8px;
+    color: var(--slate);
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(18, 21, 26, 0.38);
+  }
+  .modal-backdrop.visible { display: flex; }
+  .modal {
+    width: min(760px, 100%);
+    max-height: min(720px, calc(100vh - 48px));
+    overflow: auto;
+    background: var(--paper-raised);
+    border: 1px solid var(--grid-line);
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(18, 21, 26, 0.22);
+  }
+  .modal-header {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 22px;
+    border-bottom: 1px solid var(--grid-line);
+    background: var(--paper-raised);
+  }
+  .modal-title {
+    margin: 0 0 4px;
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+  .modal-body { padding: 22px; }
+  .close-button {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    flex: 0 0 auto;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .stat-box {
+    border: 1px solid var(--grid-line);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--paper);
+  }
+  .stat-value {
+    display: block;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .stat-label {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--slate);
+    text-transform: uppercase;
+  }
+  .history-list {
+    display: grid;
+    gap: 8px;
+  }
+  .history-row {
+    display: grid;
+    grid-template-columns: 84px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--grid-line);
+  }
+  .score-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 58px;
+    padding: 6px 9px;
+    border-radius: 999px;
+    background: var(--signal-dim);
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+  .run-url {
+    margin: 0 0 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .run-date {
+    margin: 0;
+    color: var(--slate);
+    font-size: 12px;
+  }
+
+  .audit-toast {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 30;
+    display: none;
+    width: min(360px, calc(100vw - 44px));
+    padding: 16px;
+    background: var(--paper-raised);
+    border: 1px solid var(--grid-line);
+    border-left: 4px solid var(--pass);
+    border-radius: 8px;
+    box-shadow: 0 16px 42px rgba(18, 21, 26, 0.18);
+  }
+  .audit-toast.visible { display: block; }
+  .toast-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .toast-title {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .toast-copy {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .toast-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .toast-close {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    flex: 0 0 auto;
+  }
 
   footer {
     position: relative;
     z-index: 2;
-    max-width: 640px;
-    margin: 32px auto 0;
-    padding: 0 24px;
+    max-width: 1120px;
+    margin: 16px auto 0;
+    padding: 0 24px 32px;
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--slate);
   }
 
+  @media (max-width: 860px) {
+    .workspace { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   @media (max-width: 520px) {
-    main { padding-top: 48px; }
+    main { padding-top: 42px; }
     h1 { font-size: 27px; }
     .topbar { padding: 12px 18px; }
-    .loading-title { font-size: 24px; }
+    .panel { padding: 20px; }
+    .history-row { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -296,125 +494,314 @@
   <div class="scan-line" aria-hidden="true"></div>
 
   <div class="topbar">
-    <span class="status"><span class="status-dot" aria-hidden="true"></span> Scanner prêt</span>
+    <span class="status"><span class="status-dot" aria-hidden="true"></span> Scanner pret</span>
     <span class="topbar-tag">audit-tool</span>
   </div>
 
   <main>
-    <p class="eyebrow">Site audit</p>
-    <h1> Notez votre site sur 100.</h1>
-    <p class="lede">
-      Analyse un site et le note par rapport à un modèle pondéré à cinq catégories :
-      crawlabilité, santé technique, performances, référencement sur la page et mobile
-      &amp; UX — la même structure qu'un audit manuel suivrait.
-    </p>
+    <section class="intro">
+      <p class="eyebrow">Site audit</p>
+      <h1>Notez votre site sur 100.</h1>
+      <p class="lede">
+        Analyse un site avec les controles SEO essentiels, conserve l'historique par domaine,
+        et laisse les audits longs continuer en arriere-plan.
+      </p>
+    </section>
 
-    <div class="weights">
-      <span class="chip"><b>30%</b> Crawlabilité</span>
-      <span class="chip"><b>25%</b> Technique</span>
-      <span class="chip"><b>20%</b> Performance</span>
-      <span class="chip"><b>15%</b> On-page</span>
-      <span class="chip"><b>10%</b> Mobile &amp; UX</span>
-    </div>
+    <section class="workspace">
+      <div>
+        <form class="panel" action="/audit" method="post" id="auditForm">
+          <div class="panel-head">
+            <h2>Nouvel audit</h2>
+          </div>
+          <div class="field">
+            <label class="panel-label" for="url">URL cible</label>
+            <input type="text" id="url" name="url" placeholder="https://example.com" required>
+          </div>
+          <div class="field">
+            <label class="panel-label" for="maxPages">Nombre maximum de pages a crawler</label>
+            <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="5000">
+          </div>
+          <div class="field">
+            <label class="check-field" for="runGeo">
+              <input type="checkbox" id="runGeo" name="runGeo">
+              <span class="check-copy">
+                <span class="check-title">Verifier les citations Google AI Overview</span>
+                <span class="check-hint">Optionnel, hors score. Necessite <code>SERPAPI_KEY</code> et consomme jusqu'a 5 recherches SerpApi.</span>
+              </span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="panel-label" for="geoQueries">Requetes GEO ciblees</label>
+            <textarea id="geoQueries" name="geoQueries" placeholder="meilleur logiciel audit SEO&#10;comment auditer le referencement d'un site"></textarea>
+          </div>
+          <button type="submit"><span aria-hidden="true">&#9656;</span> Lancer l'analyse</button>
+        </form>
 
-    <form class="panel" action="/audit" method="post" id="auditForm">
-      <div class="field">
-        <label class="panel-label" for="url">URL Cible</label>
-        <input type="text" id="url" name="url" placeholder="https://example.com" required>
+        <section class="panel audit-status" aria-live="polite" id="auditStatus">
+          <div class="status-row">
+            <div class="spinner" aria-hidden="true" id="auditSpinner"></div>
+            <div>
+              <p class="status-title" id="auditStatusTitle">Audit en cours</p>
+              <p class="status-meta" id="auditStatusMeta">Demarrage du crawler...</p>
+            </div>
+          </div>
+          <a class="button-link" href="#" id="auditReportLink" hidden>Voir le rapport</a>
+          <button type="button" class="secondary-button" id="hideAuditStatus">Masquer le suivi</button>
+        </section>
       </div>
-      <div class="field">
-        <label class="panel-label" for="maxPages">Nombre maximum de pages à crawler</label>
-        <input type="number" id="maxPages" name="maxPages" value="20" min="1" max="5000">
-      </div>
-      <div class="field">
-        <label class="check-field" for="runGeo">
-          <input type="checkbox" id="runGeo" name="runGeo">
-          <span class="check-copy">
-            <span class="check-title">Verifier les citations Google AI Overview</span>
-            <span class="check-hint">Optionnel, hors score. Necessite <code>SERPAPI_KEY</code> et consomme jusqu'a 5 recherches SerpApi.</span>
-          </span>
-        </label>
-      </div>
-      <div class="field">
-        <label class="panel-label" for="geoQueries">Requetes GEO ciblees (une par ligne, optionnel)</label>
-        <textarea id="geoQueries" name="geoQueries" placeholder="meilleur logiciel audit SEO&#10;comment auditer le referencement d'un site"></textarea>
-      </div>
-      <button type="submit"><span class="arrow">&#9656;</span> Lancer l'analyse</button>
-    </form>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Historique par site</h2>
+            <p class="muted">Chaque bouton ouvre les statistiques et les derniers audits du domaine.</p>
+          </div>
+          <span class="muted"><%= domains.length %> site<%= domains.length > 1 ? 's' : '' %></span>
+        </div>
+
+        <% if (domains.length === 0) { %>
+          <p class="empty-state">Aucun audit enregistre pour le moment.</p>
+        <% } else { %>
+          <div class="domain-grid">
+            <% for (let i = 0; i < domains.length; i += 1) {
+              const site = domains[i]; %>
+              <button type="button" class="domain-button<%= i >= 12 ? ' hidden-domain' : '' %>" data-domain="<%= site.domain %>">
+                <span>
+                  <span class="domain-name"><%= site.domain %></span>
+                  <span class="domain-meta"><%= site.audit_count %> audit<%= site.audit_count > 1 ? 's' : '' %> - score moyen <%= site.avg_score %></span>
+                </span>
+              </button>
+            <% } %>
+          </div>
+          <% if (domains.length > 12) { %>
+            <div class="show-more-row">
+              <button type="button" class="secondary-button" id="showMoreDomains">Voir plus</button>
+            </div>
+          <% } %>
+        <% } %>
+      </section>
+    </section>
   </main>
 
-  <footer>Historique conservé par domaine · Playwright pour Performance &amp; Mobile si disponible</footer>
-  <section class="loading-view" aria-live="polite" aria-hidden="true" id="loadingView">
-    <div class="loading-panel">
-      <div class="loading-spinner" aria-hidden="true"></div>
-      <h2 class="loading-title">Audit en cours</h2>
-      <p class="loading-copy">Le crawler analyse les pages, les performances et les signaux SEO. Cette etape peut prendre quelque temps.</p>
-      <button type="button" class="cancel-button" id="cancelAudit">Annuler l'attente</button>
+  <footer>Historique conserve par domaine - Playwright pour Performance &amp; Mobile si disponible</footer>
+
+  <div class="modal-backdrop" id="domainModal" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-header">
+        <div>
+          <h2 class="modal-title" id="modalTitle">Historique</h2>
+          <p class="muted" id="modalSubtitle"></p>
+        </div>
+        <button type="button" class="close-button" id="closeModal" aria-label="Fermer">X</button>
+      </header>
+      <div class="modal-body" id="modalBody"></div>
+    </section>
+  </div>
+
+  <aside class="audit-toast" id="auditToast" aria-live="polite" aria-hidden="true">
+    <div class="toast-head">
+      <div>
+        <p class="toast-title">Audit termine</p>
+        <p class="toast-copy">Le nouveau rapport est pret.</p>
+      </div>
+      <button type="button" class="secondary-button toast-close" id="closeAuditToast" aria-label="Fermer">X</button>
     </div>
-  </section>
+    <div class="toast-actions">
+      <a class="button-link" href="#" id="toastReportLink">Voir le rapport</a>
+    </div>
+  </aside>
 
   <script>
     (() => {
       const form = document.getElementById('auditForm');
-      const loadingView = document.getElementById('loadingView');
-      const cancelButton = document.getElementById('cancelAudit');
-      let controller = null;
-      let polling = false;
+      const auditStatus = document.getElementById('auditStatus');
+      const auditStatusTitle = document.getElementById('auditStatusTitle');
+      const auditStatusMeta = document.getElementById('auditStatusMeta');
+      const auditSpinner = document.getElementById('auditSpinner');
+      const auditReportLink = document.getElementById('auditReportLink');
+      const hideAuditStatus = document.getElementById('hideAuditStatus');
+      const auditToast = document.getElementById('auditToast');
+      const toastReportLink = document.getElementById('toastReportLink');
+      const closeAuditToast = document.getElementById('closeAuditToast');
+      const showMoreDomains = document.getElementById('showMoreDomains');
+      const domainModal = document.getElementById('domainModal');
+      const closeModal = document.getElementById('closeModal');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalSubtitle = document.getElementById('modalSubtitle');
+      const modalBody = document.getElementById('modalBody');
+      const activeJobs = <%- activeJobsJson %>;
+      const watchedJobs = new Map();
 
-      function showLoading() {
-        document.body.classList.add('audit-loading');
-        loadingView.setAttribute('aria-hidden', 'false');
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
       }
 
-      function hideLoading() {
-        document.body.classList.remove('audit-loading');
-        loadingView.setAttribute('aria-hidden', 'true');
+      function formatDate(value) {
+        return new Date(value).toLocaleString('fr-FR');
+      }
+
+      function showAuditStatus(title, meta) {
+        auditStatusTitle.textContent = title;
+        auditStatusMeta.textContent = meta;
+        auditSpinner.hidden = false;
+        auditReportLink.hidden = true;
+        auditStatus.classList.add('visible');
+      }
+
+      function showCompletedAudit(reportUrl) {
+        auditStatusTitle.textContent = 'Audit termine';
+        auditStatusMeta.textContent = 'Le nouveau rapport est pret.';
+        auditSpinner.hidden = true;
+        auditReportLink.href = reportUrl;
+        auditReportLink.hidden = false;
+        auditStatus.classList.add('visible');
+      }
+
+      function showAuditToast(reportUrl) {
+        toastReportLink.href = reportUrl;
+        auditToast.classList.add('visible');
+        auditToast.setAttribute('aria-hidden', 'false');
+      }
+
+      function hideStatus() {
+        auditStatus.classList.remove('visible');
+      }
+
+      async function watchJob(statusUrl) {
+        if (watchedJobs.has(statusUrl)) return watchedJobs.get(statusUrl);
+
+        const promise = (async () => {
+          showAuditStatus('Audit en cours', 'Suivi actif...');
+          while (true) {
+            const statusResponse = await fetch(statusUrl, { headers: { Accept: 'application/json' } });
+            const status = await statusResponse.json().catch(() => ({}));
+            if (!statusResponse.ok) throw new Error(status.error || 'Statut indisponible');
+
+            if (status.status === 'completed') {
+              showCompletedAudit(status.reportUrl);
+              showAuditToast(status.reportUrl);
+              return;
+            }
+            if (status.status === 'failed') throw new Error(status.error || 'Audit failed');
+
+            const count = status.pagesCrawled || 0;
+            showAuditStatus('Audit en cours', `${status.status} - ${count} page${count > 1 ? 's' : ''} crawlee${count > 1 ? 's' : ''}`);
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        })().catch((err) => {
+          showAuditStatus('Audit interrompu', err.message);
+        }).finally(() => {
+          watchedJobs.delete(statusUrl);
+        });
+
+        watchedJobs.set(statusUrl, promise);
+        return promise;
       }
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
-        controller = new AbortController();
-        polling = true;
-        showLoading();
+        showAuditStatus('Audit en cours', 'Creation du job...');
 
         try {
           const response = await fetch(form.action, {
             method: 'POST',
             body: new URLSearchParams(new FormData(form)),
             headers: { Accept: 'application/json' },
-            signal: controller.signal,
           });
-
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.error || 'Audit failed');
-
-          while (polling) {
-            const statusResponse = await fetch(payload.statusUrl, {
-              headers: { Accept: 'application/json' },
-              signal: controller.signal,
-            });
-            const status = await statusResponse.json().catch(() => ({}));
-            if (!statusResponse.ok) throw new Error(status.error || 'Audit status unavailable');
-            if (status.status === 'completed') {
-              window.location.href = status.reportUrl;
-              return;
-            }
-            if (status.status === 'failed') throw new Error(status.error || 'Audit failed');
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-          }
+          watchJob(payload.statusUrl);
         } catch (err) {
-          if (err.name !== 'AbortError') alert(err.message);
-          hideLoading();
-        } finally {
-          controller = null;
+          showAuditStatus('Audit impossible', err.message);
         }
       });
 
-      cancelButton.addEventListener('click', () => {
-        polling = false;
-        if (controller) controller.abort();
-        hideLoading();
+      hideAuditStatus.addEventListener('click', hideStatus);
+      closeAuditToast.addEventListener('click', () => {
+        auditToast.classList.remove('visible');
+        auditToast.setAttribute('aria-hidden', 'true');
       });
+
+      if (showMoreDomains) {
+        showMoreDomains.addEventListener('click', () => {
+          const expanded = showMoreDomains.dataset.expanded === 'true';
+          document.querySelectorAll('.domain-button').forEach((button, index) => {
+            button.classList.toggle('hidden-domain', expanded && index >= 12);
+          });
+          showMoreDomains.dataset.expanded = expanded ? 'false' : 'true';
+          showMoreDomains.textContent = expanded ? 'Voir plus' : 'Masquer';
+        });
+      }
+
+      function openModal() {
+        domainModal.classList.add('visible');
+        domainModal.setAttribute('aria-hidden', 'false');
+        closeModal.focus();
+      }
+
+      function closeDomainModal() {
+        domainModal.classList.remove('visible');
+        domainModal.setAttribute('aria-hidden', 'true');
+      }
+
+      async function loadDomain(domain) {
+        modalTitle.textContent = domain;
+        modalSubtitle.textContent = 'Chargement...';
+        modalBody.innerHTML = '';
+        openModal();
+
+        try {
+          const response = await fetch(`/audit/domains/${encodeURIComponent(domain)}`, {
+            headers: { Accept: 'application/json' },
+          });
+          const stats = await response.json();
+          if (!response.ok) throw new Error(stats.error || 'Historique indisponible');
+
+          modalSubtitle.textContent = `${stats.audit_count} audit${stats.audit_count > 1 ? 's' : ''} - dernier audit ${formatDate(stats.last_run_at)}`;
+          const rows = stats.history.map((run) => `
+            <div class="history-row">
+              <span class="score-pill">${Math.round(run.finalScore)}/100</span>
+              <div>
+                <p class="run-url">${escapeHtml(run.startUrl)}</p>
+                <p class="run-date">${formatDate(run.runAt)} - ${run.pagesCrawled} page${run.pagesCrawled > 1 ? 's' : ''} - ${run.totalIssues} probleme${run.totalIssues > 1 ? 's' : ''}</p>
+              </div>
+              <a class="button-link secondary-button" href="${run.reportUrl}">Voir</a>
+            </div>
+          `).join('');
+
+          modalBody.innerHTML = `
+            <div class="stats-grid">
+              <div class="stat-box"><span class="stat-value">${Math.round(stats.avg_score)}</span><span class="stat-label">Score moyen</span></div>
+              <div class="stat-box"><span class="stat-value">${Math.round(stats.best_score)}</span><span class="stat-label">Meilleur score</span></div>
+              <div class="stat-box"><span class="stat-value">${stats.audit_count}</span><span class="stat-label">Audits</span></div>
+              <div class="stat-box"><span class="stat-value">${stats.total_pages}</span><span class="stat-label">Pages crawlees</span></div>
+            </div>
+            <div class="history-list">${rows}</div>
+          `;
+        } catch (err) {
+          modalSubtitle.textContent = '';
+          modalBody.innerHTML = `<p class="empty-state">${escapeHtml(err.message)}</p>`;
+        }
+      }
+
+      document.querySelectorAll('.domain-button').forEach((button) => {
+        button.addEventListener('click', () => loadDomain(button.dataset.domain));
+      });
+      closeModal.addEventListener('click', closeDomainModal);
+      domainModal.addEventListener('click', (event) => {
+        if (event.target === domainModal) closeDomainModal();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeDomainModal();
+      });
+
+      activeJobs.forEach((job) => watchJob(`/audit/jobs/${job.id}`));
     })();
   </script>
 </body>

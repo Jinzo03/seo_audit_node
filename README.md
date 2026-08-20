@@ -15,7 +15,7 @@ Open http://localhost:3000, enter a URL, run an audit.
 ```bash
 npm test
 ```
-177 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness + background audit jobs), no live network
+183 tests (crawler + scoring + crawl-to-score aggregation + TLS/security/redirects + browser-audit sampling + SQLite persistence + edge-case handling + category drill-down + RAG/GEO readiness + background audit jobs + homepage domain stats), no live network
 calls — all HTTP responses are mocked. Several real bugs have been caught
 and fixed by this suite during development (see below).
 
@@ -74,28 +74,31 @@ src/
     db.js                SQLite persistence (better-sqlite3) — saves every
                           audit run (now including full category-level
                           issue detail as JSON) and serves both the
-                          historical trend view and the category drill-down
-                          page
+                          historical trend view, homepage domain statistics,
+                          and the category drill-down page
   server.js             Express app; POST /audit starts a background audit
                          job and returns immediately. GET /audit/jobs/:id
                          exposes status for polling, and completed jobs
                          point to GET /report/:id, the actual results page,
                          reloadable and linkable. Also serves the category
-                         drill-down route (GET /report/:id/category/:key),
-                         with a graceful fallback if Playwright/Chromium
-                         isn't available for the browser audit step
+                         drill-down route (GET /report/:id/category/:key)
+                         and the homepage domain-stats endpoint
+                         (GET /audit/domains/:domain), with a graceful
+                         fallback if Playwright/Chromium isn't available
+                         for the browser audit step
 views/                  server-rendered EJS templates: a "diagnostic
                          console" visual design (IBM Plex Sans/Mono, ink/
                          paper/signal palette, animated scan line).
-                         index.ejs is the audit form; results.ejs has the
-                         score gauge, Core Web Vitals indicators, historical
+                         index.ejs is the audit console plus homepage
+                         history/statistics UI; results.ejs has the score
+                         gauge, Core Web Vitals indicators, historical
                          sparkline, and filterable/sortable issue list, plus
                          a print stylesheet for PDF export; category.ejs
                          lists every page affected by a given category's
                          issues (with a link to each), plus tabs to jump
                          directly between categories and a button back to
                          the results page for the same audit
-tests/                  177 tests across 27 suites
+tests/                  183 tests across 27 suites
 ```
 
 ## Findings worth knowing about
@@ -316,19 +319,60 @@ complete. A new `GET /audit/jobs/:id` endpoint exposes `queued` / `running`
 / `completed` / `failed` state plus the report URL, so the front end can
 poll instead of holding one giant request open.
 
-The loading screen in `index.ejs` was adjusted to use that polling model.
-Submitting the audit form now shows "Audit en cours", starts the job, polls
-`/audit/jobs/:id`, and redirects only when the job returns a report URL. The
-button is intentionally labelled `Annuler l'attente`: it stops the browser
-from waiting and hides the loading view, but it does not kill the server-side
-crawl. That matches the encadrant's requirement that user interaction should
-not interrupt an audit already running in the background. The chosen job
-store is intentionally lightweight and in-memory, proportional to this
-project's scope; it survives normal page navigation and UI interaction, but
-not a Node server restart. Verified with `tests/serverJobs.test.js`, which
-starts a real local target site, posts to `/audit`, receives a `202`, polls
-the status endpoint, and confirms the job eventually produces a real
-`/report/:id`.
+The first loading-screen version in `index.ejs` used that polling model but
+still behaved like a blocking experience: it covered the page, and the
+client redirected as soon as the job returned a report URL. That proved too
+aggressive once the homepage history/statistics UI became part of the
+workflow. The current version keeps the audit status inline instead: the
+user can hide the "Audit en cours" panel, keep browsing domain history, and
+open modals while the crawl continues server-side. When the job completes,
+the UI now offers "Voir le rapport" in the panel and in a non-blocking
+toast, but never forces a redirect. The chosen job store is intentionally
+lightweight and in-memory, proportional to this project's scope; it survives
+normal page navigation and UI interaction, but not a Node server restart.
+Verified with `tests/serverJobs.test.js`, which starts a real local target
+site, posts to `/audit`, receives a `202`, polls the status endpoint, and
+confirms the job eventually produces a real `/report/:id`.
+
+**Fourth encadrant feedback round - homepage history, stats modal, and
+non-disruptive completion.** After the background job foundation was in
+place, the homepage could safely become more than a search form. `db.js`
+now exposes `listAuditDomains()` and `getDomainStats()`: the first returns
+one row per audited domain for the homepage buttons, and the second returns
+aggregate stats plus the latest runs for the modal. `server.js` renders
+those domain buttons on `/` and serves `GET /audit/domains/:domain` as the
+small JSON endpoint used by the modal. This keeps the homepage fast and
+does not reload the page just to inspect a domain's history.
+
+The UI detail mattered here. Showing every audited domain at once quickly
+becomes noisy, so `index.ejs` initially shows the first 12 sites only. The
+"Voir plus" button reveals the rest, then becomes "Masquer" so the user can
+return to the compact view. Clicking a site opens a modal with score
+statistics, pages crawled, issue counts, recent audit dates, and direct
+links to existing reports. None of this pauses or cancels an audit already
+running in the background.
+
+The completion behavior was also corrected after testing the real flow.
+Auto-redirecting when a background audit finishes is technically easy but
+bad UX: a user may be reading old results or inspecting a stats modal when
+the new crawl completes. The current behavior is deliberately non-
+interruptive. The inline "Audit en cours" panel changes to "Audit termine"
+and shows a "Voir le rapport" link, and a small toast appears with the same
+action. The user decides whether to open the new report immediately or keep
+working where they are.
+
+**A SerpApi citation bug was found after the background/history changes,
+but the root cause was local code, not the API key.** The dashboard showed
+successful SerpApi searches, yet the report displayed
+`Erreur SerpApi : selfCitations is not defined`. That error happened after
+SerpApi had already returned data: `checkCitations()` tried to include
+`selfCitations` and `competitorCitations` in the result object without ever
+defining those variables. The fix was to split extracted AI Overview links
+into target-domain citations and other sources before building the result:
+`selfCitations = links.filter(isDomainMatch)` and
+`competitorCitations = links.filter(!isDomainMatch)`. Added regression
+tests for both a cited-domain response and an AI Overview that only cites
+other sites. This brought the suite to 183 tests.
 
 **A pre-existing dead-code bug was found and fixed while touching this
 code**: `buildOnPageDataForPage`'s duplicate-content wiring compared

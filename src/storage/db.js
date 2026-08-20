@@ -164,10 +164,80 @@ function getAuditById(db, id) {
  */
 function getAuditHistory(db, startUrl, limit = 12) {
   const domain = domainFromUrl(startUrl);
+  return getAuditHistoryForDomain(db, domain, limit);
+}
+
+function getAuditHistoryForDomain(db, domain, limit = 12) {
   const stmt = db.prepare(`
     SELECT * FROM audits WHERE domain = @domain ORDER BY run_at DESC LIMIT @limit
   `);
   return stmt.all({ domain, limit });
 }
 
-module.exports = { initDb, saveAuditRun, getAuditHistory, getAuditById, domainFromUrl, DEFAULT_DB_PATH };
+function listAuditDomains(db, limit = 50) {
+  const stmt = db.prepare(`
+    SELECT
+      domain,
+      COUNT(*) AS audit_count,
+      MAX(run_at) AS last_run_at,
+      ROUND(AVG(final_score), 1) AS avg_score,
+      MAX(final_score) AS best_score,
+      SUM(pages_crawled) AS total_pages
+    FROM audits
+    GROUP BY domain
+    ORDER BY last_run_at DESC
+    LIMIT @limit
+  `);
+  return stmt.all({ limit });
+}
+
+function getDomainStats(db, domain, limit = 12) {
+  const stats = db.prepare(`
+    SELECT
+      domain,
+      COUNT(*) AS audit_count,
+      MAX(run_at) AS last_run_at,
+      ROUND(AVG(final_score), 1) AS avg_score,
+      MAX(final_score) AS best_score,
+      MIN(final_score) AS worst_score,
+      SUM(pages_crawled) AS total_pages
+    FROM audits
+    WHERE domain = @domain
+    GROUP BY domain
+  `).get({ domain });
+
+  if (!stats) return null;
+
+  const latest = db.prepare(`
+    SELECT id, start_url, run_at, final_score, tier_level, pages_crawled, total_issues
+    FROM audits
+    WHERE domain = @domain
+    ORDER BY run_at DESC, id DESC
+    LIMIT 1
+  `).get({ domain });
+
+  const history = getAuditHistoryForDomain(db, domain, limit).map((run) => ({
+    id: run.id,
+    startUrl: run.start_url,
+    runAt: run.run_at,
+    finalScore: run.final_score,
+    tierLevel: run.tier_level,
+    pagesCrawled: run.pages_crawled,
+    totalIssues: run.total_issues,
+    reportUrl: `/report/${run.id}`,
+  }));
+
+  return { ...stats, latest, history };
+}
+
+module.exports = {
+  initDb,
+  saveAuditRun,
+  getAuditHistory,
+  getAuditHistoryForDomain,
+  getAuditById,
+  listAuditDomains,
+  getDomainStats,
+  domainFromUrl,
+  DEFAULT_DB_PATH,
+};

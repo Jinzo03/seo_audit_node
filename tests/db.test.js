@@ -3,7 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { initDb, saveAuditRun, getAuditHistory, getAuditById, domainFromUrl } = require('../src/storage/db');
+const {
+  initDb,
+  saveAuditRun,
+  getAuditHistory,
+  getAuditById,
+  listAuditDomains,
+  getDomainStats,
+  domainFromUrl,
+} = require('../src/storage/db');
 
 function fakeScoreResult(overrides = {}) {
   return {
@@ -72,6 +80,27 @@ describe('storage/db', () => {
   test('getAuditHistory respects the limit parameter', () => {
     const history = getAuditHistory(db, 'https://example.com', 2);
     assert.equal(history.length, 2);
+  });
+
+  test('listAuditDomains returns one summary row per audited domain', () => {
+    const domains = listAuditDomains(db);
+    const example = domains.find((row) => row.domain === 'example.com');
+    assert.ok(example);
+    assert.ok(example.audit_count >= 1);
+    assert.ok(example.avg_score > 0);
+    assert.ok(example.total_pages >= 1);
+  });
+
+  test('getDomainStats returns aggregate stats and recent history for a domain', () => {
+    const stats = getDomainStats(db, 'example.com', 2);
+    assert.equal(stats.domain, 'example.com');
+    assert.ok(stats.audit_count >= 1);
+    assert.equal(stats.history.length, 2);
+    assert.match(stats.history[0].reportUrl, /^\/report\/\d+$/);
+  });
+
+  test('getDomainStats returns null for a domain without audits', () => {
+    assert.equal(getDomainStats(db, 'missing.example'), null);
   });
 
   test('initDb is idempotent (calling it again on the same file does not error)', () => {

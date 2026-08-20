@@ -66,6 +66,49 @@ describe('SerpApi citation checks', () => {
     }
   });
 
+  test('checkCitations separates target-domain citations from other sources', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async () => jsonResponse(200, {
+      ai_overview: {
+        references: [
+          { link: 'https://example.com/source' },
+          { link: 'https://competitor.com/article' },
+        ],
+      },
+    });
+
+    try {
+      const [result] = await checkCitations(['test query'], 'example.com', 'test-key', { delayMs: 0 });
+      assert.equal(result.error, null);
+      assert.equal(result.cited, true);
+      assert.equal(result.citedUrl, 'https://example.com/source');
+      assert.deepEqual(result.selfCitations, ['https://example.com/source']);
+      assert.deepEqual(result.competitorCitations, ['https://competitor.com/article']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('checkCitations does not throw when an AI Overview has no target-domain citation', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async () => jsonResponse(200, {
+      ai_overview: {
+        references: [{ link: 'https://competitor.com/article' }],
+      },
+    });
+
+    try {
+      const [result] = await checkCitations(['test query'], 'example.com', 'test-key', { delayMs: 0 });
+      assert.equal(result.error, null);
+      assert.equal(result.cited, false);
+      assert.equal(result.citedUrl, null);
+      assert.deepEqual(result.selfCitations, []);
+      assert.deepEqual(result.competitorCitations, ['https://competitor.com/article']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('fetchAiOverview follows a page_token response', async () => {
     const originalFetch = global.fetch;
     const requested = [];

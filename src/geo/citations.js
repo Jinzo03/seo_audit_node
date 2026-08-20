@@ -164,8 +164,10 @@ async function checkCitations(queries, domain, apiKey, options = {}) {
         });
       } else {
         const links = extractCitationLinksFromAiOverview(aiOverview);
-        const citedLink = links.find((link) => isDomainMatch(link, domain));
-        
+        const selfCitations = links.filter((link) => isDomainMatch(link, domain));
+        const competitorCitations = links.filter((link) => !isDomainMatch(link, domain));
+        const citedLink = selfCitations[0] || null;
+
         results.push({
           query,
           hasAiOverview: true,

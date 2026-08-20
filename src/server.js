@@ -5,7 +5,14 @@ const path = require('path');
 const { Crawler } = require('./crawler/crawler');
 const { scoreSite } = require('./scoring/buildAuditData');
 const { selectPagesForBrowserAudit } = require('./performance/selectSample');
-const { initDb, saveAuditRun, getAuditHistory, getAuditById } = require('./storage/db');
+const {
+  initDb,
+  saveAuditRun,
+  getAuditHistory,
+  getAuditById,
+  listAuditDomains,
+  getDomainStats,
+} = require('./storage/db');
 const { runCitationAudit } = require('./geo/citations');
 
 const app = express();
@@ -149,7 +156,22 @@ async function runAuditJob(job) {
 }
 
 app.get('/', (req, res) => {
-  res.render('index');
+  let domains = [];
+  try {
+    domains = listAuditDomains(db);
+  } catch (err) {
+    console.warn('Could not load audit domains:', err.message);
+  }
+
+  const activeJobs = Array.from(auditJobs.values())
+    .filter((job) => job.status === 'queued' || job.status === 'running')
+    .map(publicJobState);
+
+  res.render('index', {
+    domains,
+    activeJobs,
+    activeJobsJson: JSON.stringify(activeJobs).replace(/</g, '\\u003c'),
+  });
 });
 
 app.post('/audit', (req, res) => {
@@ -175,6 +197,12 @@ app.get('/audit/jobs/:id', (req, res) => {
   const job = auditJobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Audit job not found' });
   res.json(publicJobState(job));
+});
+
+app.get('/audit/domains/:domain', (req, res) => {
+  const stats = getDomainStats(db, req.params.domain);
+  if (!stats) return res.status(404).json({ error: 'Audit domain not found' });
+  res.json(stats);
 });
 
 app.get('/report/:id', (req, res) => {
